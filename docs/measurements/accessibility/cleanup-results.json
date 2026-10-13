@@ -1,0 +1,8 @@
+{
+  "fixture_removed_in_system_ui": true,
+  "independent_launch_check": {
+    "error": "app_not_found",
+    "outcome": "not_sent"
+  },
+  "transport": "Wi-Fi TLS, ADB unavailable"
+}

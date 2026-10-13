@@ -35,8 +35,13 @@
     "native_elf_page_alignment": 16384
   },
   "handoff_state": {
-    "phone_control_stopped_by_explicit_test": true,
+    "user_start_restored_wifi_control": true,
+    "backend": "accessibility",
+    "drivable": true,
     "adb_online": false,
-    "fixture_cleanup_pending_device_reconnection": true
+    "fixture_cleanup_completed": true,
+    "previous_foreground_restored": "com.androiduse.probe",
+    "lease_released": true,
+    "latest_cli_cross_owner_shutdown_reconnect_passed": true
   }
 }
