@@ -1,6 +1,6 @@
 {
   "name": "android-use",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Android phone control for agents through authorized ADB",
   "author": {
     "name": "leeguooooo"

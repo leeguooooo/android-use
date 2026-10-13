@@ -143,6 +143,55 @@ async fn attached() -> anyhow::Result<Vec<Value>> {
         })
         .collect())
 }
+fn device_token(directory: &std::path::Path, serial: &str) -> anyhow::Result<String> {
+    use base64::Engine as _;
+    use std::io::Write;
+    let directory = directory.join("tokens");
+    std::fs::create_dir_all(&directory)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))?;
+    }
+    let path = directory.join(format!("{:x}.token", Sha256::digest(serial.as_bytes())));
+    if path.exists() {
+        let metadata = std::fs::metadata(&path)?;
+        if !metadata.is_file() || metadata.len() > 128 {
+            anyhow::bail!("Device authorization file is invalid");
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o077 != 0 {
+                anyhow::bail!("Device authorization file must be private");
+            }
+        }
+        let token = std::fs::read_to_string(path)?;
+        if base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(&token)
+            .ok()
+            .is_none_or(|bytes| bytes.len() != 32)
+        {
+            anyhow::bail!("Device authorization file is invalid");
+        }
+        return Ok(token);
+    }
+    let mut random = [0u8; 32];
+    getrandom::fill(&mut random).map_err(|_| anyhow::anyhow!("Random source unavailable"))?;
+    let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(random);
+    let mut options = OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(token.as_bytes())?;
+    file.sync_all()?;
+    Ok(token)
+}
+
 fn print_result(value: Value) -> anyhow::Result<()> {
     println!("{}", serde_json::to_string(&value)?);
     if value.get("ok") == Some(&json!(false)) {
@@ -380,18 +429,19 @@ async fn main() -> anyhow::Result<()> {
                 Some(path) => path,
                 None => backend::setup_runner().await?,
             };
-            let device = AndroidBackend::connect(serial, &jar)
+            // Host authorization remains stable for this device across reconnects.
+            // The device-side runner still uses a separate per-launch token.
+            let token = device_token(&dir, &serial)?;
+            let mut device = AndroidBackend::connect(serial, &jar)
                 .await
                 .map_err(|e| anyhow::anyhow!("{}: {}", e.error, e.message))?;
-            let mut random = [0u8; 32];
-            getrandom::fill(&mut random)
-                .map_err(|_| anyhow::anyhow!("Random source unavailable"))?;
-            use base64::Engine as _;
-            let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(random);
-            save_connection(&Connection {
+            if let Err(error) = save_connection(&Connection {
                 url: url.clone(),
                 token: token.clone(),
-            })?;
+            }) {
+                device.close().await;
+                return Err(error);
+            }
             let session = Arc::new(Mutex::new(Session::new(device)));
             let stopping = session.lock().await.control.stopping.clone();
             eprintln!("android-use listening at {url}; connection credentials saved privately");
@@ -470,4 +520,45 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn host_authorization_survives_reconnect_and_is_device_specific() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = device_token(directory.path(), "fixture-a").unwrap();
+        assert_eq!(first, device_token(directory.path(), "fixture-a").unwrap());
+        assert_ne!(first, device_token(directory.path(), "fixture-b").unwrap());
+    }
+    #[test]
+    fn corrupt_authorization_is_refused_without_silent_rotation() {
+        let directory = tempfile::tempdir().unwrap();
+        device_token(directory.path(), "fixture-a").unwrap();
+        let path = directory
+            .path()
+            .join("tokens")
+            .join(format!("{:x}.token", Sha256::digest(b"fixture-a")));
+        std::fs::write(&path, "invalid").unwrap();
+        assert!(device_token(directory.path(), "fixture-a").is_err());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "invalid");
+    }
+    #[cfg(unix)]
+    #[test]
+    fn shared_authorization_permissions_are_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        device_token(directory.path(), "fixture-a").unwrap();
+        let path = directory
+            .path()
+            .join("tokens")
+            .join(format!("{:x}.token", Sha256::digest(b"fixture-a")));
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(device_token(directory.path(), "fixture-a").is_err());
+    }
 }

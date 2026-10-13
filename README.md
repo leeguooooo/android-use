@@ -41,7 +41,7 @@ android-use --owner example release
 android-use disconnect
 ```
 
-`release` gives up the caller's lease; `disconnect` shuts down that connection and removes its runner and ADB forward. Reconnecting restarts an unhealthy connection after its owner releases it. Each phone has a process lock and each caller has an expiring lease. A different active owner cannot be displaced.
+`release` gives up the caller's lease; `disconnect` shuts down that connection and removes its runner and ADB forward. Reconnecting restarts an unhealthy connection after its owner releases it. MCP authorization stays valid when the same phone reconnects. Each phone has a process lock and each caller has an expiring lease. A different active owner cannot be displaced.
 
 ## Input and results
 
