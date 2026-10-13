@@ -115,4 +115,4 @@ jobs:
         run: |
           version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
           test "$TAG" = "v$version"
-          gh release create "$TAG" dist/* --verify-tag --title "android-use $version" --notes-file RELEASE-NOTES.md
+          gh release create "$TAG" dist/* --verify-tag --draft --title "android-use $version" --notes-file RELEASE-NOTES.md
