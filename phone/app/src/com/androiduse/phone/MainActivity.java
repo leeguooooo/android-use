@@ -1,8 +1,10 @@
 package com.androiduse.phone;
 import android.app.*;
 import android.content.*;
+import android.graphics.*;
 import android.os.*;
 import android.provider.Settings;
+import android.view.*;
 import android.widget.*;
 import org.json.*;
 
@@ -18,8 +20,28 @@ public final class MainActivity extends Activity {
         findViewById(R.id.btn_resume).setOnClickListener(v -> start());
         findViewById(R.id.btn_accessibility).setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         findViewById(R.id.btn_stop).setOnClickListener(v -> stop());
-        showState();
+        applyInsets();
         if(Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},1);
+    }
+    @Override protected void onResume() { super.onResume(); showState(); }
+    private void applyInsets() {
+        final View header = findViewById(R.id.header);
+        final View content = findViewById(R.id.content);
+        final int headerTop = header.getPaddingTop();
+        final int contentBottom = content.getPaddingBottom();
+        findViewById(R.id.root).setOnApplyWindowInsetsListener((v, insets) -> {
+            int top, bottom;
+            if (Build.VERSION.SDK_INT >= 30) {
+                Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+                top = bars.top; bottom = bars.bottom;
+            } else {
+                top = insets.getSystemWindowInsetTop();
+                bottom = insets.getSystemWindowInsetBottom();
+            }
+            header.setPadding(header.getPaddingLeft(), headerTop + top, header.getPaddingRight(), header.getPaddingBottom());
+            content.setPadding(content.getPaddingLeft(), content.getPaddingTop(), content.getPaddingRight(), contentBottom + bottom);
+            return insets;
+        });
     }
     private void showState() {
         SharedPreferences prefs = getSharedPreferences("control",0);
