@@ -1,0 +1,75 @@
+{
+  "mode": "stub-service-adb-on",
+  "time_ms": 1791880904700,
+  "model": "samsung SM-A155M",
+  "sdk_int": 36,
+  "release": "16",
+  "target_sdk": 35,
+  "settings": {
+    "adb_enabled": "1",
+    "development_settings_enabled": "1",
+    "adb_wifi_enabled": "0",
+    "accessibility_enabled": "1",
+    "enabled_accessibility_services": "com.androiduse.stub/com.androiduse.stub.StubService"
+  },
+  "props": {
+    "sys.usb.state": "mtp,adb",
+    "sys.usb.config": "mtp,adb",
+    "persist.sys.usb.config": "sec_charging,adb",
+    "init.svc.adbd": "running",
+    "service.adb.root": "",
+    "ro.debuggable": "",
+    "ro.secure": ""
+  },
+  "usb_state": {
+    "available": true,
+    "host_connected": "false",
+    "connected": "true",
+    "unlocked": "true",
+    "config_changed": "false",
+    "adb": "true",
+    "mtp": "true",
+    "configured": "true"
+  },
+  "accessibility": {
+    "is_enabled": true,
+    "touch_exploration": false,
+    "enabled_services": [
+      "com.androiduse.stub/.StubService"
+    ],
+    "installed_services": [
+      "com.google.android.apps.accessibility.voiceaccess/.JustSpeakService",
+      "com.samsung.accessibility/.assistantmenu.serviceframework.AssistantMenuService",
+      "com.samsung.accessibility/.universalswitch.UniversalSwitchService",
+      "com.samsung.android.accessibility.talkback/com.samsung.android.marvin.talkback.TalkBackService",
+      "com.androiduse.stub/.StubService"
+    ],
+    "node_queries_target": 45,
+    "node_queries_input": 48
+  },
+  "packages": {
+    "com.androiduse.stub": {
+      "visible": true,
+      "write_secure_settings": true
+    },
+    "com.github.uiautomator": {
+      "visible": false
+    },
+    "com.github.uiautomator.test": {
+      "visible": false
+    }
+  },
+  "loopback_open": {
+    "19008": false,
+    "9008": false,
+    "7912": false,
+    "5037": false,
+    "5555": false,
+    "27042": false
+  },
+  "proc_net_tcp_readable": false,
+  "tmp_runner_jar_visible": true,
+  "gestures": [],
+  "input_log": [],
+  "note": "environment only; gesture/input logs belonged to the earlier adb-backend run in the same process"
+}

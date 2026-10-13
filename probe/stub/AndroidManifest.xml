@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.androiduse.stub"
+    android:versionCode="1"
+    android:versionName="0.1">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
+    <!-- Granted only through adb (pm grant); lets the app restore its own service. -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+    <application android:label="Stub Service" android:allowBackup="false">
+        <activity android:name=".Heal" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!-- Test only: turns developer options off, runs the probe, turns them back on. -->
+        <activity android:name=".DevToggle" android:exported="true" />
+        <service android:name=".StubService"
+            android:exported="false"
+            android:label="Stub Service"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service" />
+        </service>
+    </application>
+</manifest>

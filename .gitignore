@@ -2,3 +2,4 @@
 /runner/build/
 *.log
 .DS_Store
+/probe/build/
