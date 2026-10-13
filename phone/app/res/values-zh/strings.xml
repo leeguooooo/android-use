@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tagline">配对一台可信电脑来控制这部手机</string>
+
+    <string name="consent_title">配对前须知</string>
+    <string name="consent_body">只配对你信任的电脑。控制开启后,配对的电脑能读取你的屏幕,并在这部手机上点按、输入文字。随时可在下方停止。</string>
+
+    <string name="pairing_hint">粘贴 “android-use pair” 生成的配对文本</string>
+
+    <string name="btn_save">保存配对并启动</string>
+    <string name="btn_resume">启动已保存的配对</string>
+    <string name="btn_accessibility">打开无障碍设置</string>
+    <string name="btn_stop">停止并关闭控制</string>
+
+    <string name="section_connection">连接</string>
+
+    <string name="status_idle">尚未配对。在上方粘贴配对文本即可开始。</string>
+    <string name="status_paired_idle">已配对,控制未开启。点“启动已保存的配对”即可开启。</string>
+
+    <string name="notif_channel">手机控制</string>
+    <string name="notif_title">android-use 已启用</string>
+    <string name="notif_text">配对的电脑可以读取并控制这部手机</string>
+    <string name="notif_stop">停止</string>
+
+    <string name="status_invalid">配对文本不完整。从终端复制完整内容后再粘贴一次。</string>
+    <string name="status_pair_first">请先保存配对,再启动。</string>
+    <string name="status_running">控制已开启。让这部手机和配对的电脑处于同一 Wi-Fi。若不是通过 ADB 安装的,请在设置里打开无障碍。</string>
+    <string name="status_stopped">控制已停止。若是手动安装的,请同时在无障碍设置里关闭该服务。</string>
+</resources>

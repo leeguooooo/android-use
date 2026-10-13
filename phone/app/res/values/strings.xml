@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">android-use</string>
+    <string name="app_name" translatable="false">android-use</string>
     <string name="tagline">Pair a trusted computer to control this phone</string>
 
     <string name="consent_title">Before you pair</string>
