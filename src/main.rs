@@ -299,7 +299,15 @@ async fn main() -> anyhow::Result<()> {
             let mut daemon = tokio::process::Command::new(std::env::current_exe()?);
             // The daemon must survive the invoking CLI's terminal/process group.
             #[cfg(unix)]
-            daemon.process_group(0);
+            unsafe {
+                daemon.pre_exec(|| {
+                    if libc::setsid() == -1 {
+                        Err(std::io::Error::last_os_error())
+                    } else {
+                        Ok(())
+                    }
+                });
+            }
             #[cfg(windows)]
             daemon.creation_flags(0x00000008 | 0x00000200);
             let mut child = daemon

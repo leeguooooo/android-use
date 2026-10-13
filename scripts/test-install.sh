@@ -27,6 +27,7 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 case "$url" in
+    */releases/latest) printf '%s' 'https://github.com/leeguooooo/android-use/releases/tag/v0.1.0' ;;
     *.sha256) cp "$ANDROID_INSTALL_FIXTURE/archive.sha256" "$output" ;;
     *.tar.gz) cp "$ANDROID_INSTALL_FIXTURE/archive.tar.gz" "$output" ;;
     *) exit 1 ;;
@@ -38,6 +39,9 @@ export ANDROID_USE_TAG=v0.1.0 ANDROID_USE_INSTALL_DIR="$android_install_tmp/inst
 export PATH="$android_install_tmp/mock:$PATH"
 sh "$repo/install.sh"
 test "$("$ANDROID_USE_INSTALL_DIR/android-use" --version)" = 'android-use 0.1.0'
+unset ANDROID_USE_TAG
+sh "$repo/install.sh"
+export ANDROID_USE_TAG=v0.1.0
 printf 'old binary\n' > "$ANDROID_USE_INSTALL_DIR/android-use"
 printf 'invalid checksum\n' > "$android_install_tmp/archive.sha256"
 if sh "$repo/install.sh" > /dev/null 2>&1; then

@@ -24,7 +24,9 @@ else actual=$(shasum -a 256 "$work/$asset" | awk '{print $1}'); fi
 if [ "$expected" != "$actual" ]; then echo 'Android archive checksum mismatch' >&2; exit 1; fi
 mkdir "$work/unpacked"
 tar -xzf "$work/$asset" -C "$work/unpacked"
-"$work/unpacked/android-use" --version
+version_output=$("$work/unpacked/android-use" --version)
+if [ "$version_output" != "android-use ${tag#v}" ]; then echo 'Android binary version does not match release tag' >&2; exit 1; fi
+printf '%s\n' "$version_output"
 destination=${ANDROID_USE_INSTALL_DIR:-"$HOME/.local/bin"}
 mkdir -p "$destination"
 temporary="$destination/.android-use-install-$$"

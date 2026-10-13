@@ -1,0 +1,10 @@
+{
+  "artifact": "standalone local debug build",
+  "tools": 9,
+  "run_steps_ms": 747.08,
+  "response_bytes": 1383,
+  "text_bytes": 530,
+  "fresh_postcondition": true,
+  "outcome": "applied",
+  "settled": true
+}

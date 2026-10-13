@@ -16,8 +16,9 @@ try {
     & tar -xzf $archive -C $temp
     if ($LASTEXITCODE -ne 0) { throw 'Archive extraction failed' }
     $binary = Join-Path $temp 'android-use.exe'
-    & $binary --version
-    if ($LASTEXITCODE -ne 0) { throw 'Downloaded binary cannot run' }
+    $version = (& $binary --version | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $version -ne "android-use $($Tag.Substring(1))") { throw 'Binary version does not match release tag' }
+    Write-Output $version
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
     $target = Join-Path $InstallDir 'android-use.exe'
     $backup = "$target.previous"
