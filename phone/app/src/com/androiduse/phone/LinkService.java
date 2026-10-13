@@ -18,14 +18,14 @@ public final class LinkService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         NotificationManager manager = getSystemService(NotificationManager.class);
-        manager.createNotificationChannel(new NotificationChannel("control","Phone control",NotificationManager.IMPORTANCE_LOW));
+        manager.createNotificationChannel(new NotificationChannel("control",getString(R.string.notif_channel),NotificationManager.IMPORTANCE_LOW));
         Intent stop = new Intent(this,LinkService.class).setAction("stop");
         PendingIntent stopAction = PendingIntent.getService(this,1,stop,PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent open = PendingIntent.getActivity(this,2,new Intent(this,MainActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
-        Notification notice = new Notification.Builder(this,"control").setContentTitle("android-use enabled")
-            .setContentText("Your paired computer can read and control this phone")
-            .setSmallIcon(android.R.drawable.ic_menu_view).setContentIntent(open).setOngoing(true)
-            .addAction(new Notification.Action.Builder(null,"Stop",stopAction).build()).build();
+        Notification notice = new Notification.Builder(this,"control").setContentTitle(getString(R.string.notif_title))
+            .setContentText(getString(R.string.notif_text))
+            .setSmallIcon(R.drawable.ic_stat_control).setContentIntent(open).setOngoing(true)
+            .addAction(new Notification.Action.Builder(null,getString(R.string.notif_stop),stopAction).build()).build();
         startForeground(1,notice);
     }
     @Override public int onStartCommand(Intent intent,int flags,int id) {

@@ -16,6 +16,13 @@
     <string name="section_connection">Connection</string>
 
     <string name="status_idle">Not paired yet. Paste the pairing text above to begin.</string>
+    <string name="status_paired_idle">Paired, control is off. Tap “Start saved pairing” to enable it.</string>
+
+    <string name="notif_channel">Phone control</string>
+    <string name="notif_title">android-use is enabled</string>
+    <string name="notif_text">Your paired computer can read and control this phone</string>
+    <string name="notif_stop">Stop</string>
+
     <string name="status_invalid">That pairing text is incomplete. Copy the full block from the terminal and paste it again.</string>
     <string name="status_pair_first">Save a pairing first, then start.</string>
     <string name="status_running">Control is on. Keep this phone and the paired computer on the same Wi-Fi. Turn on Accessibility in Settings if the app was not installed over ADB.</string>

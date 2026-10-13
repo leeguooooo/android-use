@@ -18,7 +18,14 @@ public final class MainActivity extends Activity {
         findViewById(R.id.btn_resume).setOnClickListener(v -> start());
         findViewById(R.id.btn_accessibility).setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         findViewById(R.id.btn_stop).setOnClickListener(v -> stop());
+        showState();
         if(Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},1);
+    }
+    private void showState() {
+        SharedPreferences prefs = getSharedPreferences("control",0);
+        if(prefs.getBoolean("running",false)) state.setText(R.string.status_running);
+        else if(!prefs.getString("pairing","").isEmpty()) state.setText(R.string.status_paired_idle);
+        else state.setText(R.string.status_idle);
     }
     private void save(String text) {
         try {
