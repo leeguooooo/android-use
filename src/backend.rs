@@ -220,6 +220,14 @@ impl AndroidBackend {
                 Failure::not_sent("runner_file_failed", "Unable to write runner authorization")
             })?;
         }
+        // Port 19008 was free, so no runner is starting; a live runner has
+        // already read its token. Remove files left by a killed daemon.
+        let _ = adb(
+            &backend.serial,
+            &["shell", "rm -f /data/local/tmp/android-use-auth-*.txt"],
+            false,
+        )
+        .await;
         let remote_token = format!("/data/local/tmp/android-use-auth-{}.txt", &token[..12]);
         let pushed = adb(
             &backend.serial,
@@ -282,6 +290,10 @@ impl AndroidBackend {
                 .await
                 .is_ok_and(|r| r.status().is_success())
             {
+                // The runner reads its token once at startup.
+                if let Some(token_file) = backend.remote_token.take() {
+                    let _ = adb(&backend.serial, &["shell", "rm", "-f", &token_file], false).await;
+                }
                 return Ok(backend);
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
@@ -386,6 +398,8 @@ impl AndroidBackend {
         if let Some(mut runner) = self.runner.take() {
             let _ = runner.kill().await;
             let _ = runner.wait().await;
+            // Any app can stat this path; do not leave the runner behind.
+            let _ = adb(&self.serial, &["shell", "rm", "-f", REMOTE_JAR], false).await;
         }
         if let Some(token_file) = self.remote_token.take() {
             let _ = adb(&self.serial, &["shell", "rm", &token_file], false).await;
