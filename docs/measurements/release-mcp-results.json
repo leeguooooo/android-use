@@ -1,0 +1,12 @@
+{
+  "artifact": "GitHub Release v0.1.1 draft archive",
+  "binary_sha256": "3f6333b003db485bbd7ee05ba89adaed7b18080911375be96c4f738546bac116",
+  "tools": 9,
+  "run_steps_ms": 3694.35,
+  "response_bytes": 5349,
+  "text_bytes": 1625,
+  "fresh_postcondition": true,
+  "switch_unchanged": true,
+  "outcome": "applied",
+  "settled": false
+}

@@ -1,0 +1,78 @@
+{
+  "platform": "ios",
+  "device_model": "iPhone 17 Pro Max",
+  "ios": "27.0",
+  "version": "0.17.19",
+  "transport": "wifi",
+  "planned_task_samples": 10,
+  "task_samples": [
+    {
+      "ms": 3797.68,
+      "bytes": 9772,
+      "passed": true,
+      "settled": true
+    },
+    {
+      "ms": 2234.11,
+      "bytes": 9729,
+      "passed": true,
+      "settled": true
+    },
+    {
+      "ms": 4524.65,
+      "bytes": 9580,
+      "passed": true,
+      "settled": true
+    },
+    {
+      "ms": 2822.43,
+      "bytes": 9769,
+      "passed": true,
+      "settled": true
+    },
+    {
+      "ms": 3240.64,
+      "bytes": 9770,
+      "passed": true,
+      "settled": true
+    },
+    {
+      "ms": 3209.12,
+      "bytes": 9731,
+      "passed": true,
+      "settled": true
+    },
+    {
+      "ms": 3183.37,
+      "bytes": 9770,
+      "passed": true,
+      "settled": true
+    },
+    {
+      "ms": 3906.13,
+      "bytes": 9506,
+      "passed": true,
+      "settled": true
+    },
+    {
+      "ms": 1831.28,
+      "bytes": 9145,
+      "passed": true,
+      "settled": true
+    },
+    {
+      "ms": 2346.71,
+      "bytes": 9728,
+      "passed": true,
+      "settled": true
+    }
+  ],
+  "model_round_trips": null,
+  "task": "Settings root to Bluetooth; use the previous action observation for the next root frame",
+  "incomplete": false,
+  "task_p50_ms": 3196.245,
+  "original_app_restored_verified": true,
+  "released": true,
+  "transport_evidence": "phone_status and hold response at the beginning of this run",
+  "comparison_limit": "Different phones and transports. Android navigates two pages over USB, iPhone one page over Wi-Fi. This is an operational comparison, not a causal platform speed comparison."
+}

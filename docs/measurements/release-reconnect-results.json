@@ -1,0 +1,9 @@
+{
+  "artifact": "GitHub Release v0.1.1 draft archive",
+  "same_mcp_process": true,
+  "reconnect_rounds": 5,
+  "host_authorization_stable": true,
+  "status_after_reconnect_drivable": true,
+  "ui_mutations": 0,
+  "released": true
+}
