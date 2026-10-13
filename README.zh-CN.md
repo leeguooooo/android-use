@@ -2,11 +2,11 @@
 
 [English](README.md) · [下载已发布版本](https://github.com/leeguooooo/android-use/releases) · [实测记录](docs/measurements/README.md)
 
-**读一次屏幕，一批完成后续操作；关闭 USB 调试，也能控制 Android。**
+**读一次屏幕，一批完成后续操作，控制真实 Android 手机。**
 
 android-use 提供 CLI 和 MCP 接口，供 Claude Code、Codex 和其他 AI Agent 读取屏幕、点击、输入、滑动、启动应用和检查结果。Rust 处理控制协议与连接，无障碍后端通过 JNI 调用 Android API。
 
-已发布的 ADB 后端和开发预览版无障碍后端使用同一套接口。无障碍后端走 Wi-Fi TLS，安装授权后可以关闭开发者选项和 USB 调试。当前 APK 支持 ARM64；功能已通过本地真机验收，尚未正式发布。
+已发布的 ADB 后端和开发预览版无障碍后端使用同一套接口。无障碍后端走 Wi-Fi TLS。当前 APK 支持 ARM64；功能已通过本地真机验收，尚未正式发布。
 
 ## 性能与速度
 
@@ -18,7 +18,7 @@ android-use 提供 CLI 和 MCP 接口，供 Claude Code、Codex 和其他 AI Age
 |---|---:|---|
 | 可访问屏幕读取 | 中位数 **55.07 ms**，12 个样本 | 本地 ADB 适配器、USB，[原始数据](docs/measurements/bench-results.json) |
 | 点击计数器、等待精确标签、独立检查 | 中位数 **676.51 ms**，10/10 通过 | 合成测试 App、USB，[原始数据](docs/measurements/bench-results.json) |
-| 设置 → 连接 → 蓝牙 | 中位数 **3.58 秒**，10/10 通过 | 无障碍预览版、Wi-Fi、开发者选项关闭，[原始数据](docs/measurements/accessibility/settings-bluetooth.json) |
+| 设置 → 连接 → 蓝牙 | 中位数 **3.58 秒**，10/10 通过 | 无障碍预览版、Wi-Fi，[原始数据](docs/measurements/accessibility/settings-bluetooth.json) |
 | MCP 四步蓝牙导航返回的文本 | **1,625 字节** | v0.1.1 发布归档单次样本；完整 JSON-RPC 为 5,349 字节，[原始记录](docs/measurements/release-mcp-results.json) |
 
 读屏耗时、任务耗时和返回字节数分别衡量不同内容。这里没有模型耗时或 token 测量，也没有与竞品的受控对照，不能据此宣传“比某工具快几倍”。蓝牙持续扫描时，任务已完成，但 `settled:false` 仍是正确状态。
@@ -46,9 +46,9 @@ Agent 技能可通过 `npx skills add leeguooooo/android-use --skill android-use
 
 ## 常见问题
 
-### 不开 USB 调试，能自动化 Android 吗？
+### 无障碍后端怎么连接？
 
-无障碍预览版可以。默认安装流程临时用一次 ADB 安装、授权和配对，之后通过 Wi-Fi TLS 控制。手动安装 APK 并开启无障碍的路径也存在，但未完成无设置授权场景的真机验收。已发布的 ADB 后端仍需 USB 调试。
+通过 Wi-Fi TLS 控制已配对的手机。默认安装流程临时用一次 ADB 安装、授权和配对；手动安装 APK 并开启无障碍的路径也存在，但未完成无设置授权场景的真机验收。已发布的 ADB 后端使用 USB 调试。
 
 ### 比 Appium、UIAutomator 或截图式 Agent 快吗？
 

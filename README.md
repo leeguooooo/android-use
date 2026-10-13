@@ -2,11 +2,11 @@
 
 [简体中文](README.zh-CN.md) · [GitHub Releases](https://github.com/leeguooooo/android-use/releases) · [Measured performance](#measured-performance)
 
-**Read the screen once. Batch the next steps. Control Android with USB debugging off.**
+**Read the screen once. Batch the next steps. Control a real Android phone.**
 
 android-use is a Rust Android automation CLI and MCP server for AI agents, including Claude Code, Codex and other MCP clients. It reads native and accessible WebView screens, taps, types Unicode, scrolls and verifies postconditions. Compact text and screen deltas reduce repeated output; batches let an agent send known actions and semantic waits in one tool call. Screenshots are available when the accessible tree is insufficient.
 
-Two backends use the same CLI/MCP interface: the released ADB backend and an ARM64 accessibility companion in development preview. The companion connects over paired Wi-Fi TLS and works with developer options and USB debugging disabled after setup.
+Two backends use the same CLI/MCP interface: the released ADB backend and an ARM64 accessibility companion in development preview. The companion connects to a paired computer over Wi-Fi TLS.
 
 ## Measured performance
 
@@ -16,7 +16,7 @@ Samsung SM-A155M, Android 16; fixed scripts without a model, measured on 2026-10
 |---|---:|---|
 | Accessible screen read | **55.07 ms median**, 12 samples | Local native ADB adapter, USB; [raw timings](docs/measurements/bench-results.json) |
 | Counter tap, exact-label wait and fresh verification | **676.51 ms median**, 10/10 tasks | Synthetic fixture, USB; [raw timings](docs/measurements/bench-results.json) |
-| Settings → Connections → Bluetooth | **3.58 s median**, 10/10 tasks | Accessibility preview, Wi-Fi, developer options off; [raw timings](docs/measurements/accessibility/settings-bluetooth.json) |
+| Settings → Connections → Bluetooth | **3.58 s median**, 10/10 tasks | Accessibility preview, Wi-Fi; [raw timings](docs/measurements/accessibility/settings-bluetooth.json) |
 | Four-step Bluetooth batch through MCP | **1,625 text bytes**, 3.69 s | One v0.1.1 release-archive sample, USB; full JSON-RPC response was 5,349 bytes; [raw record](docs/measurements/release-mcp-results.json) |
 
 Screen-read latency, complete-task latency and response size measure different things. They are not model response times, tokens or a speed comparison against another tool. Bluetooth discovery remained active, so those completed tasks correctly reported `settled:false`. Read the [hardware acceptance conditions](docs/measurements/README.md) and [development companion results](docs/measurements/accessibility/acceptance.json) before comparing figures.
@@ -98,7 +98,7 @@ ANDROID_SDK_ROOT=/path/to/sdk phone/build.sh
 
 `pair` displays secret JSON and saves a private pairing file. Manual installation can paste this JSON into the phone app and enable its accessibility service in Settings. Pair only a computer you trust: it can read the screen and send input. Keep the phone and computer on the same Wi-Fi; the default computer listener is `0.0.0.0:44323`. Use `--listen ADDRESS:PORT` to restrict the interface. The agent API remains on authenticated loopback HTTP.
 
-The ADB installation path grants `WRITE_SECURE_SETTINGS`, preserves other enabled services, exempts the companion from battery optimization and saves the pairing. Once `status` reports `backend:accessibility` and `drivable:true`, developer options can be turned off. Stop an existing ADB connection before switching backends. The certificate and token stay private in `~/.android-use`; re-pair after uninstalling the companion or changing the computer address. This initial version uses copy/paste pairing and supports one paired phone per data directory.
+The ADB installation path grants `WRITE_SECURE_SETTINGS`, preserves other enabled services, exempts the companion from battery optimization and saves the pairing. Once `status` reports `backend:accessibility` and `drivable:true`, the companion runs over Wi-Fi. Stop an existing ADB connection before switching backends. The certificate and token stay private in `~/.android-use`; re-pair after uninstalling the companion or changing the computer address. This initial version uses copy/paste pairing and supports one paired phone per data directory.
 
 A persistent notification and the phone app both offer a stop action. With the one-time settings grant, an enabled companion restores its own accessibility service when it is removed. After an explicit Android force-stop, open the app and start the saved pairing; Android prevents force-stopped apps from restarting themselves. Manual installs need accessibility re-enabled in Settings. On reboot, an enabled companion resumes its saved pairing. Disconnection never replays input.
 
@@ -111,9 +111,9 @@ Release CI builds the APK with a checksum. Tagged releases require `ANDROID_PHON
 
 Yes. Configure `android-use mcp` as a stdio MCP server, or use the CLI from an agent skill. The interface is not tied to one model provider. Nine tools expose status, capabilities, elements, batches, actions, taps, text, screenshots and lease release.
 
-### Can Android automation work without USB debugging?
+### How does the accessibility companion connect?
 
-The accessibility development preview controls a paired phone over Wi-Fi TLS with USB debugging and developer options disabled. The default installation uses ADB once to install, authorize and pair the companion. A manual APK/settings path is also available, but has not been hardware-tested without the settings grant. The released ADB backend still requires USB debugging.
+The accessibility development preview controls a paired phone over Wi-Fi TLS. The default installation uses ADB once to install, authorize and pair the companion; a manual APK/settings path is also available but has not been hardware-tested without the settings grant. The released ADB backend uses USB debugging.
 
 ### Is android-use faster than Appium, UIAutomator or screenshot-based agents?
 
