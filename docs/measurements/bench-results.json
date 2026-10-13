@@ -1,0 +1,153 @@
+{
+  "platform": "android",
+  "device_model": "Samsung SM-A155M",
+  "android": "16",
+  "transport": "USB",
+  "artifact": "local pre-release native adapter",
+  "read_samples": [
+    {
+      "ms": 59.28,
+      "bytes": 10075
+    },
+    {
+      "ms": 42.46,
+      "bytes": 10075
+    },
+    {
+      "ms": 50.11,
+      "bytes": 10075
+    },
+    {
+      "ms": 54.77,
+      "bytes": 10075
+    },
+    {
+      "ms": 51.01,
+      "bytes": 10075
+    },
+    {
+      "ms": 58.63,
+      "bytes": 10075
+    },
+    {
+      "ms": 59.96,
+      "bytes": 10075
+    },
+    {
+      "ms": 53.69,
+      "bytes": 10075
+    },
+    {
+      "ms": 55.37,
+      "bytes": 10075
+    },
+    {
+      "ms": 55.56,
+      "bytes": 10075
+    },
+    {
+      "ms": 55.96,
+      "bytes": 10075
+    },
+    {
+      "ms": 53.85,
+      "bytes": 10075
+    }
+  ],
+  "task_samples": [
+    {
+      "ms": 686.34,
+      "passed": true,
+      "outcome": "applied",
+      "applied_actions": 1,
+      "completed": 2,
+      "settled": true,
+      "bytes": 673
+    },
+    {
+      "ms": 705.32,
+      "passed": true,
+      "outcome": "applied",
+      "applied_actions": 1,
+      "completed": 2,
+      "settled": true,
+      "bytes": 673
+    },
+    {
+      "ms": 603.64,
+      "passed": true,
+      "outcome": "applied",
+      "applied_actions": 1,
+      "completed": 2,
+      "settled": true,
+      "bytes": 673
+    },
+    {
+      "ms": 647.51,
+      "passed": true,
+      "outcome": "applied",
+      "applied_actions": 1,
+      "completed": 2,
+      "settled": true,
+      "bytes": 673
+    },
+    {
+      "ms": 687.14,
+      "passed": true,
+      "outcome": "applied",
+      "applied_actions": 1,
+      "completed": 2,
+      "settled": true,
+      "bytes": 673
+    },
+    {
+      "ms": 650.54,
+      "passed": true,
+      "outcome": "applied",
+      "applied_actions": 1,
+      "completed": 2,
+      "settled": true,
+      "bytes": 673
+    },
+    {
+      "ms": 666.68,
+      "passed": true,
+      "outcome": "applied",
+      "applied_actions": 1,
+      "completed": 2,
+      "settled": true,
+      "bytes": 673
+    },
+    {
+      "ms": 693.07,
+      "passed": true,
+      "outcome": "applied",
+      "applied_actions": 1,
+      "completed": 2,
+      "settled": true,
+      "bytes": 673
+    },
+    {
+      "ms": 633.33,
+      "passed": true,
+      "outcome": "applied",
+      "applied_actions": 1,
+      "completed": 2,
+      "settled": true,
+      "bytes": 673
+    },
+    {
+      "ms": 712.58,
+      "passed": true,
+      "outcome": "applied",
+      "applied_actions": 1,
+      "completed": 2,
+      "settled": true,
+      "bytes": 674
+    }
+  ],
+  "model_round_trips": null,
+  "task": "tap synthetic counter and wait for its exact new label; independently read again",
+  "read_p50_ms": 55.07,
+  "task_p50_ms": 676.51
+}

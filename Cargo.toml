@@ -1,0 +1,31 @@
+[package]
+name = "android-use"
+version = "0.1.0"
+edition = "2021"
+license-file = "LICENSE"
+
+[dependencies]
+phone-control = { path = "shared/control" }
+iu_core = { package = "core", path = "shared/core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "net", "signal", "sync", "fs", "io-util"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+axum = "0.7"
+clap = { version = "4", features = ["derive"] }
+rmcp = { version = "1.7.0", features = ["server", "macros", "transport-io", "schemars"] }
+schemars = "0.8"
+base64 = "0.22"
+sha2 = "0.10"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+roxmltree = "0.20"
+fs2 = "0.4"
+getrandom = "0.3"
+anyhow = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[workspace]
+members = ["shared/core", "shared/control"]
+resolver = "2"

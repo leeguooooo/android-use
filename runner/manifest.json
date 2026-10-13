@@ -1,0 +1,7 @@
+{
+  "source_sha256": "02b16b2f8e74bbf12c9812fee9a62454ecec79f4ceabd822172633ccc1c13cce",
+  "adapter_sha256": "9b30de342089f492c648c3004ff12289ffec692fa828a0de8a816edc7b22a7bc",
+  "min_api": 26,
+  "compile_api": 36,
+  "java_image": "eclipse-temurin:17-jdk@sha256:5d6042fb8cdc14d614e4e421f52e3211fc5aeadddce44cbf9de8ed37c791f824"
+}

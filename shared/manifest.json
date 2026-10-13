@@ -1,0 +1,20 @@
+{
+  "repository": "https://github.com/leeguooooo/iphone-use",
+  "revision": "077ed55d24e979e93e6f82b928cc7a6abc1bb004",
+  "paths": {
+    "shared/core": "crates/core",
+    "shared/control": "crates/control"
+  },
+  "sha256": {
+    "shared/core/Cargo.toml": "5f212995a71dececb09e2f01c0dc8130057f94c9d9462d09519657d564b6e1b7",
+    "shared/core/src/control.rs": "65fd1fb4a5ddc268415db33b2e10fd2249f0d79bfad199143a9476d7266bbad9",
+    "shared/core/src/env.rs": "5b07bbe1e20fbab4534418e1d5530981d28124d286adee65805bc4c4c5d31897",
+    "shared/core/src/lib.rs": "876d6f8d4eedaf56f32ab8608d9b6f91291d75266a1386674278887fd22eb3db",
+    "shared/core/src/auth.rs": "a13352350bc38bdbdee07ef9077ddda5a414018b1c5aa4741e85448c962924f3",
+    "shared/core/src/progress.rs": "9b75ca42a570768ff2be14986d01dfcef7cfdd7ffc38e04fd1f60101ad42897a",
+    "shared/core/src/runner_auth.rs": "6e6a42a5d6482799c1f67a996bdd648404071250f6dd06734e03cda3ccbc93be",
+    "shared/control/Cargo.toml": "aaf0fc7434d2d108554ea7b8f96cf46dc1eab70c8ba1e3d1cd1bf1ae55d60a14",
+    "shared/control/tests/outcomes.rs": "cb9781c55a05e08f985d2e995ac78ae93035002ee2be78f68c9a7333cee13aed",
+    "shared/control/src/lib.rs": "9cf7a2c7b107b09b7a49fc95f405a31a9e69dcc0961594fab24bdadfe96f896c"
+  }
+}

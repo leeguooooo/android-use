@@ -1,0 +1,12 @@
+{
+  "name": "android-use",
+  "version": "0.1.0",
+  "description": "Android phone control for agents through authorized ADB",
+  "author": {
+    "name": "leeguooooo"
+  },
+  "repository": "https://github.com/leeguooooo/android-use",
+  "license": "PolyForm-Shield-1.0.0",
+  "skills": "./skills/android-use",
+  "mcpServers": "./.mcp.json"
+}

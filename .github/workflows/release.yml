@@ -1,0 +1,109 @@
+name: Release binaries
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'runner/**'
+      - 'tests/**'
+      - 'shared/control/**'
+      - 'shared/core/**'
+      - 'Cargo.*'
+      - '.github/workflows/release.yml'
+      - 'install.sh'
+      - 'scripts/**'
+  push:
+    branches: ['main']
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-adapter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify shared source
+        run: python3 scripts/verify-shared.py
+      - name: Install pinned Android compiler packages
+        run: '{ yes || :; } | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
+      - name: Rebuild source adapter using pinned JDK
+        run: |
+          mkdir -p runner/build/classes
+          docker run --rm --cpus=1 --memory=768m -v "$PWD/runner:/work" -v "$ANDROID_HOME:/sdk:ro" -w /work eclipse-temurin:17-jdk@sha256:5d6042fb8cdc14d614e4e421f52e3211fc5aeadddce44cbf9de8ed37c791f824 sh -c 'javac --release 8 -cp /sdk/platforms/android-36/android.jar -d build/classes src/com/androiduse/Runner.java && java -Xmx384m -cp /sdk/build-tools/36.0.0/lib/d8.jar com.android.tools.r8.D8 --min-api 26 --lib /sdk/platforms/android-36/android.jar --output build build/classes/com/androiduse/Runner*.class'
+          cmp runner/build/classes.dex runner/adapter.dex
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            name: linux-x86_64
+          - runner: macos-14
+            target: x86_64-apple-darwin
+            name: darwin-x86_64
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            name: darwin-arm64
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: windows-x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Test shared core, Android protocol, CLI and MCP
+        run: cargo test -p core -p phone-control -p android-use --locked
+      - name: Test installer
+        if: runner.os != 'Windows'
+        run: sh scripts/test-install.sh
+      - name: Clippy
+        run: cargo clippy -p phone-control -p android-use --all-targets --locked -- -D warnings
+      - name: Build
+        run: cargo build -p android-use --release --target ${{ matrix.target }} --locked
+      - name: Package binaries and checksums
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          ASSET_PLATFORM: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist package
+          binary=android-use
+          if [[ "$TARGET" == *windows* ]]; then binary=android-use.exe; fi
+          cp "target/$TARGET/release/$binary" package/
+          cp THIRD-PARTY-NOTICES.md LICENSE package/
+          tar -czf "dist/android-use-$ASSET_PLATFORM.tar.gz" -C package .
+          python3 - <<'PY'
+          import hashlib, pathlib
+          for p in pathlib.Path('dist').glob('*.tar.gz'):
+              p.with_name(p.name+'.sha256').write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-use-${{ matrix.name }}
+          path: dist/*
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, verify-adapter]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish Android release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          test "$TAG" = "v$version"
+          gh release create "$TAG" dist/* --verify-tag --title "android-use $version" --notes-file RELEASE-NOTES.md

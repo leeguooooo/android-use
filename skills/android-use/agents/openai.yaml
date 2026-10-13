@@ -1,0 +1,4 @@
+interface:
+  display_name: "Android Use"
+  short_description: "Control an Android phone through authorized ADB"
+  default_prompt: "Use android-use to operate the connected Android phone and verify the result."
