@@ -4,13 +4,13 @@
 
 ## 要解决的问题
 
-现在的链路是 `adb forward` → `app_process` 以 shell 身份跑 `Runner`，再通过 UiAutomation 读屏幕和注入输入（`src/backend.rs` 的 `AndroidBackend::connect`）。前提是开发者选项和 USB 调试都开着。任何 App 不需要权限就能读到 `Settings.Global.ADB_ENABLED` 和 `DEVELOPMENT_SETTINGS_ENABLED`，强风控 App 会据此标记账号。
+现在的链路是 `adb forward` → `app_process` 以 shell 身份跑 `Runner`，再通过 UiAutomation 读屏幕和注入输入（`src/backend.rs` 的 `AndroidBackend::connect`）。前提是开发者选项和 USB 调试都开着。部分 Android 系统允许普通 App 读取 `Settings.Global.ADB_ENABLED` 和 `DEVELOPMENT_SETTINGS_ENABLED`；较新 AOSP 已加入对应用 UID 返回 0 的遮蔽，具体取决于固件与系统开关。A155 原始样本能读出启用状态，但不能据此泛称所有 Android 版本都可读，也没有证据证明某商业 App 因此标记账号。
 
 只换掉 u2 jar、自己写一个 runner 解决不了这个问题。App 查的是 ADB 开关，不管 runner 是谁写的。
 
 新方案是在手机上装一个 android-use 自己的 App，用 `AccessibilityService` 读屏幕、做操作，通过网络连回电脑。开发者选项可以全关。
 
-这个方案是降低信号，不是消除信号。App 能用 `AccessibilityManager.getEnabledAccessibilityServiceList` 列出已启用的无障碍服务，风控 SDK 也会查。密码管理器、读屏软件同样用无障碍服务，单凭这一点封号的误伤面大，所以风险比开 USB 调试低，但不是零。README 和 SKILL 不能写"不会被封"。
+这个方案是降低信号，不是消除信号。App 能用 `AccessibilityManager.getEnabledAccessibilityServiceList` 列出已启用的无障碍服务，风控 SDK 也会查。密码管理器、读屏软件同样用无障碍服务，启用服务本身不能证明恶意自动化。减少调试信号不等于已经验证平台风控风险下降。README 和 SKILL 不能写"不会被封"。Android 的无障碍手势还有可观察的事件来源标志，`ACTION_SET_TEXT` 也会在目标控件上执行；核对结果见 `docs/measurements/platform-detection-research.json`。
 
 ## 两种后端并存
 

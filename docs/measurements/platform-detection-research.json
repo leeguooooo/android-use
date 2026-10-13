@@ -1,0 +1,185 @@
+{
+  "date": "2026-10-13",
+  "scope": "Public policy, Android/AOSP source, bounded static analysis of Tencent-distributed Xiaohongshu 9.50.0, local android-use implementation and prior observer samples. APK never installed or executed.",
+  "conclusion": "The 9.50.0 APK includes concrete getters for accessibility status and enabled-service identifiers, plus ADB-state reads inside its Getui SDK. android-use exposes a service identifier and Android accessibility input signals. Runtime invocation, telemetry use, bot classification and account enforcement remain unverified.",
+  "xiaohongshu": {
+    "product": "Xiaohongshu mainland-user policy; rednote users have a separate policy",
+    "policy_url": "https://agree.xiaohongshu.com/h5/terms/ZXXY20220509001/-1",
+    "policy_updated": "2026-09-20",
+    "policy_effective": "2026-09-27",
+    "observed_section": "2.3 security operation and risk verification",
+    "declared_categories": [
+      "device identifiers",
+      "network and connection data",
+      "process and app-running data",
+      "app list and software-use records",
+      "sensor data",
+      "necessary crash/runtime logs"
+    ],
+    "explicit_adb_or_accessibility_check_disclosed": false,
+    "actual_current_apk_detection": "Static detection/data-reading capability observed in Tencent 9.50.0; actual live detection and enforcement unknown."
+  },
+  "findings": [
+    {
+      "id": "adb-settings",
+      "evidence_type": "AOSP source and prior local observer",
+      "observed": "Android 15/16 initial release Settings.java marks ADB_ENABLED and DEVELOPMENT_SETTINGS_ENABLED readable. Newer AOSP adds redacted value 0. SettingsProvider applies it through a platform flag for application UIDs; it is not a universal targetSdk rule.",
+      "ours": "Prior Samsung Android 16 observer recorded both settings 0, adbd stopped, USB mtp, control ports closed and runner jar absent.",
+      "sources": [
+        "https://android.googlesource.com/platform/frameworks/base/+/android-16.0.0_r1/core/java/android/provider/Settings.java",
+        "https://android.googlesource.com/platform/frameworks/base/+/5d466bf8025ed8a68d9d49b47289f4f5cefbc139",
+        "https://android.googlesource.com/platform/frameworks/base/+/android17-release/packages/SettingsProvider/src/com/android/providers/settings/SettingsProvider.java"
+      ],
+      "local_evidence": "docs/measurements/accessibility/developer-off-signals.json",
+      "limitation": "Firmware backports and flags vary. A redacted 0 alone does not establish that debugging is off."
+    },
+    {
+      "id": "enabled-service",
+      "evidence_type": "Public Android API and prior local observer",
+      "observed": "getEnabledAccessibilityServiceList exposes enabled service information. Current AOSP installed-service enumeration has package visibility filtering; enabled-service enumeration follows a different code path.",
+      "ours": "com.androiduse.phone/.PocketService was visible to the ordinary observer.",
+      "sources": [
+        "https://developer.android.com/reference/android/view/accessibility/AccessibilityManager#getEnabledAccessibilityServiceList(int)",
+        "https://android.googlesource.com/platform/frameworks/base/+/master/services/accessibility/java/com/android/server/accessibility/AccessibilityManagerService.java"
+      ],
+      "local_evidence": "docs/measurements/accessibility/developer-off-signals.json",
+      "limitation": "An enabled accessibility service alone does not establish harmful automation. User/profile/UiAutomation state can affect results."
+    },
+    {
+      "id": "gesture-origin",
+      "evidence_type": "Android 16 AOSP source plus current own implementation; not live MotionEvent capture on Samsung",
+      "observed": "MotionEventInjector labels injected accessibility input; InputDispatcher maps it to FLAG_IS_ACCESSIBILITY_EVENT. MotionEvent.java documents the event flag value as 0x800, while getFlags is public.",
+      "ours": "PocketService uses dispatchGesture, so the framework path has an observable accessibility-origin signal. Rust and TLS do not remove the Android input path.",
+      "sources": [
+        "https://android.googlesource.com/platform/frameworks/base/+/android-16.0.0_r1/services/accessibility/java/com/android/server/accessibility/MotionEventInjector.java",
+        "https://android.googlesource.com/platform/frameworks/native/+/android-16.0.0_r1/services/inputflinger/dispatcher/InputDispatcher.cpp",
+        "https://android.googlesource.com/platform/frameworks/base/+/android-16.0.0_r1/core/java/android/view/MotionEvent.java",
+        "https://developer.android.com/reference/android/view/MotionEvent#getFlags()"
+      ],
+      "local_implementation": "phone/app/src/com/androiduse/phone/PocketService.java",
+      "limitation": "Not proof that Xiaohongshu reads this flag or that all vendors deliver identical event fields. It identifies accessibility origin, not necessarily a bot."
+    },
+    {
+      "id": "text-origin",
+      "evidence_type": "AOSP source, current own implementation, prior synthetic observer",
+      "observed": "AccessibilityInteractionController invokes target View.performAccessibilityAction or AccessibilityNodeProvider.performAction. TextView handles ACTION_SET_TEXT by setting the text. A target custom view/delegate can observe the action.",
+      "ours": "PocketService typeText performs ACTION_SET_TEXT; this does not look identical to keyboard InputConnection commits.",
+      "sources": [
+        "https://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/view/AccessibilityInteractionController.java",
+        "https://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/widget/TextView.java"
+      ],
+      "local_implementation": "phone/app/src/com/androiduse/phone/PocketService.java",
+      "limitation": "TextWatcher changes alone do not uniquely identify automation; Xiaohongshu actual view/SDK handlers were not examined."
+    },
+    {
+      "id": "server-behavior",
+      "evidence_type": "Declared policy, analyst inference",
+      "observed": "The policy declares collection of software-use and running-state data for risk verification.",
+      "inference": "Activity patterns and account/network/device context could provide a separate classification channel even when debugging signals are absent.",
+      "sources": [
+        "https://agree.xiaohongshu.com/h5/terms/ZXXY20220509001/-1"
+      ],
+      "limitation": "Feature lists, thresholds, active SDK calls and enforcement are not public evidence here."
+    }
+  ],
+  "apk_analysis": {
+    "status": "bounded_static_analysis_completed",
+    "source": "Official Xiaohongshu download page points to Tencent distribution; https://a.app.qq.com/o/simple.jsp?pkgname=com.xingin.xhs supplied the 9.50.0 APK URL.",
+    "package": "com.xingin.xhs",
+    "version_name": "9.50.0",
+    "version_code": "9500803",
+    "target_sdk": 36,
+    "size_bytes": 176997988,
+    "md5": "88804345e5c05156be86c617ecbf71a9",
+    "sha256": "0229e2a98994ef01ec1c3c06ed5d22c64d893eb5fc8f49ca370e9d45fd3594b7",
+    "apk_signature_verification": "apksigner verify succeeded; not independently compared to a previously trusted publisher fingerprint",
+    "signer_certificate_sha256": "f375f0f6af7c94c364b35cd6f6a66d64aefae66e32f935b48773c0faad04c121",
+    "engine": "Existing local JADX CLI 1.5.6 with JDK 21; plain CLI evidence, not REA Android Evidence",
+    "decompilation_scope": [
+      "classes16.dex in simple mode (14 reported decompilation errors)",
+      "focused FingerPrintJni in classes17.dex",
+      "focused com.xingin.u.p.c in classes11.dex",
+      "focused a.a.a.a.a.n.a in classes.dex",
+      "focused c0b.h in classes9.dex",
+      "string tables of all 22 DEX members and native-library string/export inventory"
+    ],
+    "observed_call_paths": [
+      {
+        "feature": "enabled accessibility services",
+        "path": [
+          "com.xingin.u.p.c.getEnabledAccessibilityServices()",
+          "a.a.a.a.a.n.a.a()",
+          "c0b.h.e(ContentResolver, enabled_accessibility_services)",
+          "Settings.Secure.getString(ContentResolver, key)"
+        ],
+        "result": "Can read enabled service identifiers in the default static implementation; no claim of live invocation."
+      },
+      {
+        "feature": "accessibility enabled state",
+        "path": [
+          "com.xingin.u.p.c.getAccessibilityStatus()",
+          "a.a.a.a.a.n.a.b()",
+          "Settings.Secure.getInt(ContentResolver, accessibility_enabled)"
+        ],
+        "result": "Concrete system-state getter in APK."
+      },
+      {
+        "feature": "ADB state",
+        "path": [
+          "Getui collector classes com.igexin.push.extension.distribution.gbd.a.a.a / .b",
+          "com.igexin.push.extension.distribution.gbd.j.l.c(Context)",
+          "Settings.Secure.getInt(ContentResolver, adb_enabled, 0)"
+        ],
+        "result": "Concrete setting read with static callers; located in Getui SDK, not proof of a first-party Xiaohongshu enforcement rule."
+      },
+      {
+        "feature": "Xposed state",
+        "path": [
+          "com.xingin.u.p.c.existXposed()",
+          "odc.c.a()"
+        ],
+        "result": "Detection entry and delegate present; full detector and live behavior not analyzed."
+      }
+    ],
+    "native_candidates": {
+      "library": "lib/armeabi-v7a/libxyasf.so",
+      "sha256": "ddc7367d5723d149fb8a107bb7c8eff21a41b1c4860ecf2b7de37b8ef4a599b5",
+      "observed_strings": [
+        "fingerprint.android.State.accessibility_enabled_services",
+        "TracerPid",
+        "libxposed_art.so",
+        "IS_EMULATOR"
+      ],
+      "observed_jni_test_exports": [
+        "CallJavaJniTest_getAccessibilityStatus",
+        "CallJavaJniTest_getEnabledAccessibilityServices",
+        "NativeGatherTest_isRoot"
+      ],
+      "limitation": "JNI test exports and strings alone do not establish production execution."
+    },
+    "rea_artifact_evidence_ids": [],
+    "rea_status": "Android provider lacked configured JADX MCP JAR. Native Hopper launcher was denied macOS Apple Events; REA reported cleanup_incomplete and retained /tmp/rea-Hg9rKU. No native pseudocode was obtained and no permissions were changed.",
+    "limitations": [
+      "A155 had no installed com.xingin.xhs package. This sample is not a device-exported current installation.",
+      "No app/account operation or runtime hook performed.",
+      "Robust PatchProxy can replace default getter behavior; native, dynamic configuration and server policy were not fully analyzed.",
+      "Whole-APK decompilation exceeded 1.5 GiB heap; focused DEX/class results were used instead.",
+      "Negative string searches do not exclude encrypted, concatenated, native or hot-patched checks."
+    ],
+    "manifest_read_logs_permission_observed": false,
+    "settings_reader_default_path": "The secure-settings wrapper special-cases android_id; enabled_accessibility_services takes its default Settings.Secure.getString path."
+  },
+  "verification_needed": [
+    "Observe authorized runtime calls and telemetry for an exact installed version; static presence alone does not establish execution.",
+    "Capture accessibility-origin flags in the synthetic observer on Samsung firmware.",
+    "Evaluate server behavior only through permitted tests; no enforcement thresholds are established here."
+  ],
+  "marketing_claim": "Runtime control without ADB and measured reduction of debugging signals. Do not claim undetectable automation or that Xiaohongshu accepts it.",
+  "device_cleanup": {
+    "temporary_usb_debugging_disabled": true,
+    "development_options_value_left_unchanged": 1,
+    "existing_companion_pairing_resumed": true,
+    "wifi_backend_drivable_after_usb_debugging_disabled": true,
+    "device_no_xiaohongshu_installation": true
+  }
+}

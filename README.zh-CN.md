@@ -32,7 +32,7 @@ android-use 提供 CLI 和 MCP 接口，供 Claude Code、Codex 和其他 AI Age
 - 手机上的控制端口 `19008` 关闭；手机主动连接电脑。
 - `/data/local/tmp` 中没有残留 runner jar。
 
-[查看原始检测数据](docs/measurements/accessibility/developer-off-signals.json)。已启用的无障碍服务仍然可见；手势和整段文字输入也可能与真人操作不同，能看到包的 App 还可能查询设置授权。我们没有验证具体商业平台的风控逻辑，不能把这些结果说成“无法检测”或“不会封号”。
+[查看原始检测数据](docs/measurements/accessibility/developer-off-signals.json)。已启用的无障碍服务仍然可见；Android 源码为无障碍生成的触摸事件设置了可观察的来源标志，目标控件也能观察 `ACTION_SET_TEXT`。详见 [平台源码核对](docs/measurements/platform-detection-research.json)。能看到包的 App 还可能查询设置授权。已对应用宝分发版小红书 9.50.0 做静态检查，发现读取无障碍开关与启用服务标识的入口，但未验证实际调用、上报和风控处罚。不能把这些结果说成“无法检测”或“不会封号”。
 
 ## 安装与接入
 

@@ -33,7 +33,7 @@ For people evaluating **Android automation without ADB**, the accessibility prev
 | Runner jar in `/data/local/tmp` | Absent |
 | Enabled accessibility service | Still visible |
 
-[Raw signal evidence](docs/measurements/accessibility/developer-off-signals.json) and [ADB/human input samples](docs/measurements/README.md#signal-probe-2026-10-13) describe what was actually observed. Gestures and `ACTION_SET_TEXT` can differ from human input; a settings grant can also be visible when an app can see the package. These measurements support reduced debugging exposure, not undetectability or protection against account restrictions. No commercial platform's detection system has been validated.
+[Raw signal evidence](docs/measurements/accessibility/developer-off-signals.json) and [ADB/human input samples](docs/measurements/README.md#signal-probe-2026-10-13) describe what was actually observed. Android framework source marks accessibility-generated touch events with an observable origin flag, and target views can observe `ACTION_SET_TEXT`; see the [platform-source investigation](docs/measurements/platform-detection-research.json). A settings grant can also be visible when an app can see the package. These measurements support reduced debugging exposure, not undetectability or protection against account restrictions. A bounded static inspection of Tencent-distributed Xiaohongshu 9.50.0 found enabled-accessibility-service getters; no live platform detection or enforcement has been validated.
 
 ## Install the released ADB backend
 
