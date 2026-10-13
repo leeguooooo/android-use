@@ -83,6 +83,10 @@ jobs:
           for p in pathlib.Path('dist').glob('*.tar.gz'):
               p.with_name(p.name+'.sha256').write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n')
           PY
+      - name: Test Windows installer against the built archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-install.ps1 -Archive dist/android-use-windows-x86_64.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: android-use-${{ matrix.name }}

@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.dex binary
+*.bat text eol=crlf
+*.cmd text eol=crlf

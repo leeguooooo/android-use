@@ -269,23 +269,25 @@ async fn main() -> anyhow::Result<()> {
                 if response["error"] == "device_busy" {
                     anyhow::bail!("Another session owns the existing daemon");
                 }
-                if response["ok"] == true {
-                    let lock_path = backend::data_dir()?
-                        .join("locks")
-                        .join(format!("{:x}.lock", Sha256::digest(serial.as_bytes())));
-                    let lock = OpenOptions::new().read(true).write(true).open(lock_path)?;
-                    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
-                    while fs2::FileExt::try_lock_exclusive(&lock).is_err() {
-                        if std::time::Instant::now() >= until {
-                            anyhow::bail!("Existing daemon has not released its device yet");
-                        }
-                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                    }
-                    fs2::FileExt::unlock(&lock)?;
-                }
             }
             let dir = backend::data_dir()?;
             std::fs::create_dir_all(&dir)?;
+            // A just-disconnected daemon may still be removing its runner.
+            // Wait for its lock, then leave the actual acquisition to serve.
+            let lock_path = dir
+                .join("locks")
+                .join(format!("{:x}.lock", Sha256::digest(serial.as_bytes())));
+            if lock_path.exists() {
+                let lock = OpenOptions::new().read(true).write(true).open(lock_path)?;
+                let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                while fs2::FileExt::try_lock_exclusive(&lock).is_err() {
+                    if std::time::Instant::now() >= until {
+                        anyhow::bail!("Existing daemon has not released its device yet");
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                fs2::FileExt::unlock(&lock)?;
+            }
             let mut options = OpenOptions::new();
             options.create(true).append(true);
             #[cfg(unix)]

@@ -1,4 +1,4 @@
-param([string]$Tag = $env:ANDROID_USE_TAG, [string]$InstallDir = "$env:USERPROFILE\.local\bin")
+param([string]$Tag = $env:ANDROID_USE_TAG, [string]$InstallDir = "$env:USERPROFILE\.local\bin", [switch]$SkipPathUpdate)
 $ErrorActionPreference = 'Stop'
 if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') { throw 'This release supports Windows x64.' }
 if (-not $Tag) { $Tag = (Invoke-RestMethod 'https://api.github.com/repos/leeguooooo/android-use/releases/latest').tag_name }
@@ -25,6 +25,6 @@ try {
     if (Test-Path $target) { Move-Item $target $backup -Force }
     try { Copy-Item $binary $target -Force } catch { if (Test-Path $backup) { Move-Item $backup $target -Force }; throw }
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if (($userPath -split ';') -notcontains $InstallDir) { [Environment]::SetEnvironmentVariable('Path', "$InstallDir;$userPath", 'User') }
+    if (-not $SkipPathUpdate -and ($userPath -split ';') -notcontains $InstallDir) { [Environment]::SetEnvironmentVariable('Path', "$InstallDir;$userPath", 'User') }
     Write-Output "Installed $target. Open a new terminal; run android-use doctor, then android-use connect."
 } finally { Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue }
