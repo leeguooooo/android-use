@@ -116,7 +116,7 @@ pub struct ElementsParams {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ActionsParams {
-    /// 1..32 actions. Types: tap (x,y OR element,snapshot OR label),
+    /// 1..32 actions. Types: tap (x,y OR element,snapshot OR label with optional kind),
     /// longpress (x,y,duration_ms), swipe (x1,y1,x2,y2,duration_ms),
     /// scroll (x,y,dx,dy), type (text,clear), back, home, launch_app (app), wait_for (expect: app/label/identifier/value, timeout_ms).
     pub steps: Vec<Value>,

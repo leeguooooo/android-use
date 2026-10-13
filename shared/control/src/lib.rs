@@ -99,6 +99,8 @@ pub enum Action {
         element: Option<usize>,
         snapshot: Option<String>,
         label: Option<String>,
+        /// Optional exact UI kind to disambiguate a label (for example StaticText versus Switch).
+        kind: Option<String>, // profile-use: allow; UI element type declaration
     },
     Longpress {
         x: f64,
@@ -154,7 +156,13 @@ impl Expected {
             return true;
         }
         screen.elements.iter().any(|row| {
+            let [x, y, w, h] = row.rect;
             row.visible
+                && [x, y, w, h].iter().all(|v| v.is_finite())
+                && w > 0.0
+                && h > 0.0
+                && (0.0..screen.width).contains(&(x + w / 2.0))
+                && (0.0..screen.height).contains(&(y + h / 2.0))
                 && self.label.as_ref().is_none_or(|label| label == &row.label)
                 && self
                     .identifier
@@ -201,11 +209,15 @@ impl Action {
                 element,
                 snapshot,
                 label,
+                kind,
             } => {
                 let coords = x.is_some() || y.is_some();
                 let indexed = element.is_some() || snapshot.is_some();
                 let named = label.is_some();
                 (coords as u8 + indexed as u8 + named as u8 == 1)
+                    && kind
+                        .as_ref()
+                        .is_none_or(|kind| named && !kind.is_empty() && kind.len() <= 128)
                     && ((!coords || x.zip(*y).is_some_and(|(x, y)| point(x, y)))
                         && (!indexed
                             || element.is_some()
@@ -399,6 +411,7 @@ impl<B: DeviceBackend> Controller<B> {
                 element,
                 snapshot,
                 label,
+                kind,
             } => {
                 let row = if let Some(index) = element {
                     if snapshot.as_deref() != Some(screen.snapshot()?.as_str()) {
@@ -414,7 +427,12 @@ impl<B: DeviceBackend> Controller<B> {
                     let matches: Vec<_> = screen
                         .elements
                         .iter()
-                        .filter(|r| &r.label == label && r.visible && r.enabled)
+                        .filter(|r| {
+                            &r.label == label
+                                && r.visible
+                                && r.enabled
+                                && kind.as_ref().is_none_or(|kind| kind == &r.kind)
+                        })
                         .collect();
                     if matches.len() != 1 {
                         return Err(Failure::not_sent(

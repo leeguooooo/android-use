@@ -1,0 +1,103 @@
+{
+  "platform": "android",
+  "device_model": "Samsung SM-A155M",
+  "android": "16",
+  "version": "0.1.1 local debug",
+  "transport": "USB",
+  "task": "Settings root to Connections to Bluetooth in one known-steps batch; independently verify the available-device section and unchanged switch value",
+  "planned_samples": 10,
+  "samples": [
+    {
+      "ms": 3555.72,
+      "passed": true,
+      "error": null,
+      "completed": 4,
+      "applied_actions": 2,
+      "settled": false,
+      "bytes": 3486
+    },
+    {
+      "ms": 3388.45,
+      "passed": true,
+      "error": null,
+      "completed": 4,
+      "applied_actions": 2,
+      "settled": false,
+      "bytes": 3486
+    },
+    {
+      "ms": 3776.16,
+      "passed": true,
+      "error": null,
+      "completed": 4,
+      "applied_actions": 2,
+      "settled": false,
+      "bytes": 3486
+    },
+    {
+      "ms": 3691.22,
+      "passed": true,
+      "error": null,
+      "completed": 4,
+      "applied_actions": 2,
+      "settled": false,
+      "bytes": 3119
+    },
+    {
+      "ms": 3746.2,
+      "passed": true,
+      "error": null,
+      "completed": 4,
+      "applied_actions": 2,
+      "settled": false,
+      "bytes": 3486
+    },
+    {
+      "ms": 3849.8,
+      "passed": true,
+      "error": null,
+      "completed": 4,
+      "applied_actions": 2,
+      "settled": false,
+      "bytes": 3119
+    },
+    {
+      "ms": 3768.62,
+      "passed": true,
+      "error": null,
+      "completed": 4,
+      "applied_actions": 2,
+      "settled": false,
+      "bytes": 3486
+    },
+    {
+      "ms": 3778.77,
+      "passed": true,
+      "error": null,
+      "completed": 4,
+      "applied_actions": 2,
+      "settled": false,
+      "bytes": 3119
+    },
+    {
+      "ms": 3548.5,
+      "passed": true,
+      "error": null,
+      "completed": 4,
+      "applied_actions": 2,
+      "settled": false,
+      "bytes": 3119
+    },
+    {
+      "ms": 3671.98,
+      "passed": true,
+      "error": null,
+      "completed": 4,
+      "applied_actions": 2,
+      "settled": false,
+      "bytes": 3119
+    }
+  ],
+  "model_round_trips": null,
+  "task_p50_ms": 3718.71
+}

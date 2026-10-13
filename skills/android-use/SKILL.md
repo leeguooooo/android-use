@@ -15,7 +15,7 @@ Windows uses the repository's `install.ps1`. Users need Android platform-tools (
 
 Use `android-use mcp` as a stdio MCP server. Each MCP process has its own owner. CLI callers should choose a stable session using `--owner SESSION`. Probe `phone_status` / `android-use status` first; act only when `drivable:true`. Respect another caller's lease.
 
-Read `phone_elements` once and prefer one `phone_run_steps` batch for known steps. Rows have indexes bound to that read's snapshot; use both for taps. Labels must match exactly one visible, enabled row. Coordinates are normalized from 0 to 1. Each action defaults to observing changes, so a separate read after every tap is unnecessary.
+Read `phone_elements` once and prefer one `phone_run_steps` batch for known steps. Rows have indexes bound to that read's snapshot; use both for taps. Labels must match exactly one visible, enabled row. Add an exact `kind` to distinguish a text title from a switch sharing its label, e.g. `{"type":"tap","label":"Bluetooth","kind":"StaticText"}`. Coordinates are normalized from 0 to 1. Each action defaults to observing changes, so a separate read after every tap is unnecessary.
 
 ```sh
 android-use --owner example act '{"steps":[{"type":"launch_app","app":"com.android.settings"},{"type":"wait_for","expect":{"app":"com.android.settings"},"timeout_ms":5000}]}'

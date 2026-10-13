@@ -394,3 +394,58 @@ async fn stopping_status_never_reports_a_dying_daemon_as_ready() {
     assert_eq!(result["error"], "control_stopping");
     assert_eq!(control.backend.reads, 0);
 }
+
+#[tokio::test]
+async fn typed_label_selects_the_title_without_tapping_the_same_label_switch() {
+    let mut title = screen().elements[0].clone();
+    title.kind = "StaticText".into();
+    title.label = "Bluetooth".into();
+    title.rect = [10.0, 100.0, 100.0, 40.0];
+    let mut toggle = title.clone();
+    toggle.kind = "Switch".into();
+    toggle.rect = [800.0, 100.0, 80.0, 40.0];
+    let mut s = screen();
+    s.elements = vec![title, toggle];
+    let mut backend = Mock::new();
+    backend.screens.push_back(Ok(s));
+    let mut control = Controller::new(backend);
+    let result = control
+        .execute(batch(
+            json!([{"type":"tap","label":"Bluetooth","kind":"StaticText"}]),
+        ))
+        .await;
+    assert_eq!(result["ok"], true);
+    assert!(matches!(
+        control.backend.actions[0],
+        Dispatch::Tap(60.0, 120.0)
+    ));
+}
+#[tokio::test]
+async fn kind_without_label_refuses_the_entire_batch() {
+    let mut control = Controller::new(Mock::new());
+    let result = control
+        .execute(batch(
+            json!([{"type":"home"},{"type":"tap","x":0.5,"y":0.5,"kind":"Switch"}]),
+        ))
+        .await;
+    assert_eq!(result["outcome"], "not_sent");
+    assert_eq!(control.backend.reads, 0);
+    assert!(control.backend.actions.is_empty());
+}
+
+#[tokio::test]
+async fn wait_ignores_transitional_rows_outside_the_display() {
+    let mut outside = screen();
+    outside.elements[0].rect = [-1000.0, 20.0, 100.0, 40.0];
+    let mut backend = Mock::new();
+    backend.screens.push_back(Ok(outside));
+    let mut control = Controller::new(backend);
+    let result = control
+        .execute(batch(
+            json!([{"type":"wait_for","expect":{"identifier":"field"},"timeout_ms":300}]),
+        ))
+        .await;
+    assert_eq!(result["ok"], true);
+    assert_eq!(control.backend.reads, 2);
+    assert!(control.backend.actions.is_empty());
+}
