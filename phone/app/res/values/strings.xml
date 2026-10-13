@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">android-use</string>
+    <string name="tagline">Pair a trusted computer to control this phone</string>
+
+    <string name="consent_title">Before you pair</string>
+    <string name="consent_body">Only pair a computer you trust. While control is on, the paired computer can read your screen and send taps and text on this phone. Stop it any time below.</string>
+
+    <string name="pairing_hint">Paste the pairing text from “android-use pair”</string>
+
+    <string name="btn_save">Save pairing &amp; start</string>
+    <string name="btn_resume">Start saved pairing</string>
+    <string name="btn_accessibility">Open Accessibility settings</string>
+    <string name="btn_stop">Stop &amp; disable control</string>
+
+    <string name="section_connection">Connection</string>
+
+    <string name="status_idle">Not paired yet. Paste the pairing text above to begin.</string>
+    <string name="status_invalid">That pairing text is incomplete. Copy the full block from the terminal and paste it again.</string>
+    <string name="status_pair_first">Save a pairing first, then start.</string>
+    <string name="status_running">Control is on. Keep this phone and the paired computer on the same Wi-Fi. Turn on Accessibility in Settings if the app was not installed over ADB.</string>
+    <string name="status_stopped">Control stopped. If you installed the app by hand, also turn the service off in Accessibility settings.</string>
+</resources>

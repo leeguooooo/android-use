@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand">#0F766E</color>
+    <color name="brand_light">#14B8A6</color>
+    <color name="on_brand">#FFFFFFFF</color>
+    <color name="bg">#F1F5F9</color>
+    <color name="surface">#FFFFFFFF</color>
+    <color name="text">#0F172A</color>
+    <color name="text_muted">#64748B</color>
+    <color name="hairline">#E2E8F0</color>
+    <color name="field_bg">#F8FAFC</color>
+    <color name="danger">#DC2626</color>
+    <color name="ripple_brand">#330F766E</color>
+    <color name="ripple_danger">#1FDC2626</color>
+    <color name="ripple_light">#33FFFFFF</color>
+</resources>

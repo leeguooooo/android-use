@@ -17,11 +17,12 @@ cargo_tool=${CARGO_TOOL:-$HOME/.local/bin/heavy-cargo}
 [ -x "$cargo_tool" ] || cargo_tool=cargo
 "$cargo_tool" build -p android-use-phone --release --target aarch64-linux-android --locked
 out="$root/phone/build"
-rm -rf "$out/classes"
-mkdir -p "$out/classes" "$out/lib/arm64-v8a"
+rm -rf "$out/classes" "$out/gen"
+mkdir -p "$out/classes" "$out/lib/arm64-v8a" "$out/gen"
 "$tools/aapt2" compile --dir "$root/phone/app/res" -o "$out/res.zip"
-"$tools/aapt2" link -o "$out/unsigned.apk" -I "$platform" --manifest "$root/phone/app/AndroidManifest.xml" "$out/res.zip"
+"$tools/aapt2" link -o "$out/unsigned.apk" -I "$platform" --manifest "$root/phone/app/AndroidManifest.xml" --java "$out/gen" "$out/res.zip"
 find "$root/phone/app/src" -name '*.java' > "$out/sources.txt"
+find "$out/gen" -name '*.java' >> "$out/sources.txt"
 javac --release 8 -cp "$platform" -d "$out/classes" @"$out/sources.txt"
 java -Xmx384m -cp "$tools/lib/d8.jar" com.android.tools.r8.D8 --min-api 26 --lib "$platform" --output "$out" $(find "$out/classes" -name '*.class')
 cp target/aarch64-linux-android/release/libandroid_use_phone.so "$out/lib/arm64-v8a/"

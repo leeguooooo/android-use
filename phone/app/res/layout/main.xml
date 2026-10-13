@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="@color/bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- Header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:background="@drawable/bg_header"
+            android:paddingTop="40dp"
+            android:paddingBottom="32dp"
+            android:paddingLeft="24dp"
+            android:paddingRight="24dp">
+
+            <ImageView
+                android:layout_width="68dp"
+                android:layout_height="68dp"
+                android:src="@drawable/ic_launcher_foreground"
+                android:contentDescription="@string/app_name"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/app_name"
+                android:textColor="@color/on_brand"
+                android:textSize="24sp"
+                android:fontFamily="sans-serif-medium"
+                android:paddingTop="6dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/tagline"
+                android:textColor="@color/on_brand"
+                android:alpha="0.85"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:paddingTop="4dp"/>
+        </LinearLayout>
+
+        <!-- Body -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <!-- Connection card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_card"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/consent_title"
+                    android:textColor="@color/text"
+                    android:textSize="17sp"
+                    android:fontFamily="sans-serif-medium"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/consent_body"
+                    android:textColor="@color/text_muted"
+                    android:textSize="14sp"
+                    android:lineSpacingExtra="3dp"
+                    android:paddingTop="6dp"/>
+
+                <EditText
+                    android:id="@+id/input"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_field"
+                    android:hint="@string/pairing_hint"
+                    android:textColorHint="@color/text_muted"
+                    android:textColor="@color/text"
+                    android:gravity="top|start"
+                    android:minLines="3"
+                    android:maxLines="8"
+                    android:inputType="textMultiLine"
+                    android:fontFamily="monospace"
+                    android:textSize="13sp"
+                    android:padding="14dp"
+                    android:layout_marginTop="18dp"/>
+
+                <Button
+                    android:id="@+id/btn_save"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="@string/btn_save"
+                    android:textColor="@color/on_brand"
+                    android:textSize="15sp"
+                    android:textAllCaps="false"
+                    android:fontFamily="sans-serif-medium"
+                    android:background="@drawable/btn_primary"
+                    android:stateListAnimator="@null"
+                    android:layout_marginTop="16dp"/>
+
+                <Button
+                    android:id="@+id/btn_resume"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="@string/btn_resume"
+                    android:textColor="@color/brand"
+                    android:textSize="15sp"
+                    android:textAllCaps="false"
+                    android:fontFamily="sans-serif-medium"
+                    android:background="@drawable/btn_secondary"
+                    android:stateListAnimator="@null"
+                    android:layout_marginTop="10dp"/>
+
+                <Button
+                    android:id="@+id/btn_accessibility"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="@string/btn_accessibility"
+                    android:textColor="@color/brand"
+                    android:textSize="15sp"
+                    android:textAllCaps="false"
+                    android:fontFamily="sans-serif-medium"
+                    android:background="@drawable/btn_secondary"
+                    android:stateListAnimator="@null"
+                    android:layout_marginTop="10dp"/>
+            </LinearLayout>
+
+            <!-- Status -->
+            <TextView
+                android:id="@+id/status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/status_idle"
+                android:textColor="@color/text_muted"
+                android:textSize="13sp"
+                android:lineSpacingExtra="2dp"
+                android:paddingLeft="4dp"
+                android:paddingRight="4dp"
+                android:layout_marginTop="18dp"/>
+
+            <Button
+                android:id="@+id/btn_stop"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text="@string/btn_stop"
+                android:textColor="@color/danger"
+                android:textSize="15sp"
+                android:textAllCaps="false"
+                android:fontFamily="sans-serif-medium"
+                android:background="@drawable/btn_danger"
+                android:stateListAnimator="@null"
+                android:layout_marginTop="10dp"/>
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

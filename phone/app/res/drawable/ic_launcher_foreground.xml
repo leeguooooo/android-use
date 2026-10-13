@@ -1,0 +1,17 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Phone body: white rounded frame, screen left clear so the teal shows through. -->
+    <path android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF" android:strokeWidth="5"
+        android:strokeLineJoin="round"
+        android:pathData="M45,27 h18 a7,7 0 0 1 7,7 v40 a7,7 0 0 1 -7,7 h-18 a7,7 0 0 1 -7,-7 v-40 a7,7 0 0 1 7,-7 z"/>
+    <!-- Tap ripple on the screen. -->
+    <path android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF" android:strokeWidth="3" android:strokeLineCap="round"
+        android:strokeAlpha="0.55"
+        android:pathData="M42,47 a12,12 0 0 1 24,0"/>
+    <!-- Tap point. -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M54,54 m-6.5,0 a6.5,6.5 0 1,0 13,0 a6.5,6.5 0 1,0 -13,0 z"/>
+</vector>
