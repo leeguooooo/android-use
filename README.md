@@ -11,13 +11,13 @@ android-use elements
 
 Install [Android platform-tools](https://developer.android.com/tools/releases/platform-tools), enable USB debugging, and authorize this computer on the unlocked phone. If several phones are attached, use `android-use connect --serial DEVICE_SERIAL`. For a foreground service, use `android-use serve --serial DEVICE_SERIAL`.
 
-On Windows x64:
+On Windows 10 or newer (x64):
 
 ```powershell
 irm https://raw.githubusercontent.com/leeguooooo/android-use/main/install.ps1 | iex
 ```
 
-Open a new terminal after installation. macOS Intel/Apple Silicon and Linux x64 binaries ship as GitHub Release archives with SHA-256 checksums. `android-use upgrade --check` checks the latest independent release; `android-use upgrade` installs it.
+Open a new terminal after installation. macOS Intel/Apple Silicon and Linux x64 (glibc 2.35+) binaries ship as GitHub Release archives with SHA-256 checksums. `android-use upgrade --check` checks the latest independent release; `android-use upgrade` installs it.
 
 ## Agents
 

@@ -64,7 +64,12 @@ jobs:
       - name: Clippy
         run: cargo clippy -p phone-control -p android-use --all-targets --locked -- -D warnings
       - name: Build
+        env:
+          RUSTFLAGS: ${{ runner.os == 'Windows' && '-C target-feature=+crt-static' || '' }}
         run: cargo build -p android-use --release --target ${{ matrix.target }} --locked
+      - name: Verify Windows runtime dependencies
+        if: runner.os == 'Windows'
+        run: python scripts/check-windows-imports.py target/${{ matrix.target }}/release/android-use.exe
       - name: Package binaries and checksums
         shell: bash
         env:
