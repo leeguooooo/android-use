@@ -44,12 +44,16 @@ impl<B: DeviceBackend> Session<B> {
 pub struct ApiState<B> {
     pub session: Arc<Mutex<Session<B>>>,
     token: Arc<String>,
+    backend: &'static str,
+    bridge: Option<crate::accessibility::Bridge>,
 }
 impl<B> Clone for ApiState<B> {
     fn clone(&self) -> Self {
         Self {
             session: self.session.clone(),
             token: self.token.clone(),
+            backend: self.backend,
+            bridge: self.bridge.clone(),
         }
     }
 }
@@ -58,7 +62,17 @@ impl<B> ApiState<B> {
         Self {
             session,
             token: Arc::new(token),
+            backend: "adb",
+            bridge: None,
         }
+    }
+    pub fn with_phone_bridge(mut self, bridge: Option<crate::accessibility::Bridge>) -> Self {
+        self.bridge = bridge;
+        self
+    }
+    pub fn with_backend(mut self, backend: &'static str) -> Self {
+        self.backend = backend;
+        self
     }
     fn caller(&self, headers: &HeaderMap) -> Result<String, Failure> {
         let token = headers
@@ -125,7 +139,9 @@ async fn status<B: DeviceBackend>(
     if let Err(e) = state.caller(&headers) {
         return failure(e);
     }
-    Json(state.session.lock().await.control.status().await).into_response()
+    let mut value = state.session.lock().await.control.status().await;
+    value["backend"] = json!(state.backend);
+    Json(value).into_response()
 }
 async fn caps<B: DeviceBackend>(
     State(state): State<ApiState<B>>,
@@ -134,7 +150,14 @@ async fn caps<B: DeviceBackend>(
     if let Err(e) = state.caller(&headers) {
         return failure(e);
     }
-    Json(capabilities()).into_response()
+    let mut value = capabilities();
+    value["backend"] = json!(state.backend);
+    value["on_phone_daemon"] = json!(state.backend == "accessibility");
+    if state.backend == "accessibility" {
+        value["screenshot"] = json!(state.bridge.as_ref().is_some_and(|b| b.api() >= 30));
+        value["screenshot_min_api"] = json!(30);
+    }
+    Json(value).into_response()
 }
 #[derive(Deserialize)]
 struct ElementsQuery {

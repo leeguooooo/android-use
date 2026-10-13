@@ -1,0 +1,42 @@
+{
+  "artifact": "local development build, not published acceptance",
+  "device_model": "Samsung SM-A155M",
+  "android": "16",
+  "phone_arch": "arm64-v8a",
+  "transport": "Wi-Fi TLS WebSocket",
+  "apk_sha256": "11c08418bf3195e704a93da7dd45d63ac85e5917b85079f8768b0157a5a66904",
+  "input_checks": 8,
+  "input_checks_passed": 8,
+  "input_completed_ms": 1791884566408,
+  "input_after_probe_ms": 57878,
+  "developer_off_hold_ms": 90000,
+  "bluetooth_rounds": 10,
+  "bluetooth_passed": 10,
+  "bluetooth_median_ms": 3579.385,
+  "screenshot_png_verified": true,
+  "same_mcp_process_reconnects": 5,
+  "host_authorization_stable": true,
+  "ordinary_service_recovery_ms": 4256.01,
+  "explicit_stop_disabled_own_service": true,
+  "force_stop_requires_user_start": true,
+  "hardware_reboot_tested": false,
+  "screen_lock_tested": false,
+  "manual_install_without_settings_grant_tested": false,
+  "pairing_method": "manual text or one-time ADB bootstrap",
+  "published": false,
+  "checks": {
+    "workspace_tests_passed": 70,
+    "accessibility_tests_final_passed": 5,
+    "total_distinct_tests_passed": 71,
+    "clippy_warnings_denied": true,
+    "shared_source_hashes_verified": true,
+    "installer_verified": true,
+    "release_workflow_actionlint": true,
+    "native_elf_page_alignment": 16384
+  },
+  "handoff_state": {
+    "phone_control_stopped_by_explicit_test": true,
+    "adb_online": false,
+    "fixture_cleanup_pending_device_reconnection": true
+  }
+}

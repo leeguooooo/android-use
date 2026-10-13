@@ -1,0 +1,62 @@
+{
+  "mode": "accessibility-real-backend",
+  "time_ms": 1791884508530,
+  "model": "samsung SM-A155M",
+  "sdk_int": 36,
+  "release": "16",
+  "target_sdk": 35,
+  "settings": {
+    "adb_enabled": "0",
+    "development_settings_enabled": "0",
+    "adb_wifi_enabled": "0",
+    "accessibility_enabled": "1",
+    "enabled_accessibility_services": "com.androiduse.stub/com.androiduse.stub.StubService:com.androiduse.phone/com.androiduse.phone.PocketService"
+  },
+  "props": {
+    "sys.usb.state": "mtp",
+    "sys.usb.config": "mtp",
+    "persist.sys.usb.config": "sec_charging",
+    "init.svc.adbd": "stopped",
+    "service.adb.root": "",
+    "ro.debuggable": "",
+    "ro.secure": ""
+  },
+  "usb_state": {
+    "available": true,
+    "host_connected": "false",
+    "connected": "true",
+    "unlocked": "true",
+    "config_changed": "false",
+    "mtp": "true",
+    "configured": "true"
+  },
+  "packages": {
+    "com.androiduse.stub": {
+      "visible": true,
+      "write_secure_settings": true
+    },
+    "com.github.uiautomator": {
+      "visible": false
+    },
+    "com.github.uiautomator.test": {
+      "visible": false
+    }
+  },
+  "loopback_open": {
+    "19008": false,
+    "9008": false,
+    "7912": false,
+    "5037": false,
+    "5555": false,
+    "27042": false
+  },
+  "proc_net_tcp_readable": false,
+  "tmp_runner_jar_visible": false,
+  "accessibility": {
+    "is_enabled": true,
+    "enabled_services": [
+      "com.androiduse.stub/.StubService",
+      "com.androiduse.phone/.PocketService"
+    ]
+  }
+}

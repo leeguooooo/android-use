@@ -30,3 +30,7 @@ Type only after confirming the foreground app and focused editable field. `phone
 `outcome:unknown` or `retry_safe:false` forbids automatic replay. Read the screen and check the requested postcondition. An acknowledged gesture does not prove navigation or a business operation succeeded. Do not repeat a partially completed batch. If a person changes the screen, re-read before continuing.
 
 Use `phone_screenshot` only when the tree does not answer the question. Protected surfaces may be blank. Release the caller's lease with `phone_release` / `android-use release` when done; the connection stays ready for the next task.
+
+## Accessibility companion
+
+A development companion supports Wi-Fi control without runtime ADB. Build with `ANDROID_SDK_ROOT=/path/to/sdk phone/build.sh`; create private pairing with `android-use pair --host COMPUTER_LAN_IP`, then `android-use install-app --apk phone/build/android-use-phone-arm64.apk` while USB debugging is temporarily authorized. Stop an existing ADB runner, then use `android-use connect --accessibility`. Confirm `backend:accessibility` and `drivable:true` before turning developer options off. Screenshots need API 30+. Pairing text is secret; do not print, publish or commit it. The phone app and persistent notification can stop control. After force-stop, the user must reopen the app; reconnection never replays actions.

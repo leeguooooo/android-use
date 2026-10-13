@@ -1,4 +1,5 @@
 use android_use::{
+    accessibility,
     backend::{self, AndroidBackend},
     http::{self, ApiState, Session},
     mcp::{AndroidHandler, DaemonClient},
@@ -27,12 +28,30 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Commands {
+    /// Create a private TLS pairing for the computer's LAN IP. Displays secret pairing text.
+    Pair {
+        #[arg(long)]
+        host: String,
+        #[arg(long, default_value_t = 44323)]
+        phone_port: u16,
+    },
+    /// Install a locally built or downloaded signed companion APK and pair over one-time ADB.
+    InstallApp {
+        #[arg(long)]
+        serial: Option<String>,
+        #[arg(long)]
+        apk: PathBuf,
+    },
     /// Download and verify the pinned UIAutomator runner (no Python required).
     Setup,
     /// Serve one explicitly selected, authorized Android over loopback HTTP.
     Serve {
+        #[arg(long, required_unless_present = "accessibility")]
+        serial: Option<String>,
         #[arg(long)]
-        serial: String,
+        accessibility: bool,
+        #[arg(long, default_value = "0.0.0.0:44323")]
+        listen: std::net::SocketAddr,
         #[arg(long, default_value_t = 44322)]
         port: u16,
         #[arg(long)]
@@ -42,6 +61,10 @@ enum Commands {
     Connect {
         #[arg(long)]
         serial: Option<String>,
+        #[arg(long)]
+        accessibility: bool,
+        #[arg(long, default_value = "0.0.0.0:44323")]
+        listen: std::net::SocketAddr,
         #[arg(long, default_value_t = 44322)]
         port: u16,
     },
@@ -143,6 +166,164 @@ async fn attached() -> anyhow::Result<Vec<Value>> {
         })
         .collect())
 }
+async fn select_serial(serial: Option<String>) -> anyhow::Result<String> {
+    let devices = attached().await?;
+    let devices: Vec<_> = devices.iter().filter(|d| d["state"] == "device").collect();
+    match serial {
+        Some(serial) if devices.iter().any(|d| d["serial"] == serial) => Ok(serial),
+        None if devices.len() == 1 => Ok(devices[0]["serial"].as_str().unwrap().into()),
+        _ => anyhow::bail!("Select an attached authorized device using --serial; run doctor"),
+    }
+}
+async fn install_app(serial: &str, apk: &std::path::Path) -> anyhow::Result<()> {
+    async fn adb(serial: &str, args: &[&str]) -> anyhow::Result<String> {
+        let mut command = tokio::process::Command::new("adb");
+        if cfg!(target_os = "macos") && std::env::var_os("ADB_LIBUSB").is_none() {
+            command.env("ADB_LIBUSB", "1");
+        }
+        command.args(["-s", serial]).args(args).kill_on_drop(true);
+        let output =
+            tokio::time::timeout(std::time::Duration::from_secs(45), command.output()).await??;
+        anyhow::ensure!(output.status.success(), "ADB installation/setup failed");
+        Ok(String::from_utf8_lossy(&output.stdout).trim().into())
+    }
+    let pair = accessibility::load_pairing()?;
+    adb(
+        serial,
+        &[
+            "install",
+            "-r",
+            apk.to_str()
+                .ok_or_else(|| anyhow::anyhow!("Invalid APK path"))?,
+        ],
+    )
+    .await?;
+    let package = "com.androiduse.phone";
+    adb(
+        serial,
+        &[
+            "shell",
+            "pm",
+            "grant",
+            package,
+            "android.permission.WRITE_SECURE_SETTINGS",
+        ],
+    )
+    .await?;
+    adb(
+        serial,
+        &[
+            "shell",
+            "cmd",
+            "deviceidle",
+            "whitelist",
+            "+com.androiduse.phone",
+        ],
+    )
+    .await?;
+    if adb(serial, &["shell", "getprop", "ro.build.version.sdk"])
+        .await?
+        .parse::<u32>()
+        .unwrap_or(0)
+        >= 33
+    {
+        adb(
+            serial,
+            &[
+                "shell",
+                "pm",
+                "grant",
+                package,
+                "android.permission.POST_NOTIFICATIONS",
+            ],
+        )
+        .await?;
+    }
+    let current = adb(
+        serial,
+        &[
+            "shell",
+            "settings",
+            "get",
+            "secure",
+            "enabled_accessibility_services",
+        ],
+    )
+    .await?;
+    let service = "com.androiduse.phone/com.androiduse.phone.PocketService";
+    let mut entries: Vec<&str> = current
+        .split(':')
+        .filter(|s| !s.is_empty() && *s != "null")
+        .collect();
+    if !entries
+        .iter()
+        .any(|s| *s == service || *s == "com.androiduse.phone/.PocketService")
+    {
+        entries.push(service);
+    }
+    let enabled = entries.join(":");
+    // Shell-quote existing settings, which may contain components from other apps.
+    let quoted = format!("'{}'", enabled.replace('\'', "'\\''"));
+    adb(
+        serial,
+        &[
+            "shell",
+            "settings",
+            "put",
+            "secure",
+            "enabled_accessibility_services",
+            &quoted,
+        ],
+    )
+    .await?;
+    adb(
+        serial,
+        &[
+            "shell",
+            "settings",
+            "put",
+            "secure",
+            "accessibility_enabled",
+            "1",
+        ],
+    )
+    .await?;
+    use base64::Engine as _;
+    let config = base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&pair)?);
+    adb(
+        serial,
+        &[
+            "shell",
+            "am",
+            "start",
+            "-n",
+            "com.androiduse.phone/.BootstrapActivity",
+            "--es",
+            "pairing",
+            &config,
+        ],
+    )
+    .await?;
+    let actual = adb(
+        serial,
+        &[
+            "shell",
+            "settings",
+            "get",
+            "secure",
+            "enabled_accessibility_services",
+        ],
+    )
+    .await?;
+    anyhow::ensure!(
+        actual
+            .split(':')
+            .any(|s| s == service || s == "com.androiduse.phone/.PocketService"),
+        "Accessibility not enabled; stop ADB runner first"
+    );
+    Ok(())
+}
+
 fn device_token(directory: &std::path::Path, serial: &str) -> anyhow::Result<String> {
     use base64::Engine as _;
     use std::io::Write;
@@ -203,6 +384,19 @@ fn print_result(value: Value) -> anyhow::Result<()> {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        Commands::Pair { host, phone_port } => {
+            anyhow::ensure!(!accessibility::pairing_path()?.exists(), "Already paired; move private pairing.json aside explicitly before replacing this device's pairing");
+            let pair = accessibility::create_pairing(&host, phone_port)?;
+            println!("{}", serde_json::to_string(&pair)?);
+        }
+        Commands::InstallApp { serial, apk } => {
+            let serial = select_serial(serial).await?;
+            install_app(&serial, &apk).await?;
+            println!(
+                "{}",
+                json!({"ok":true,"hint":"Pairing installed. Verify accessibility connection before turning developer options off."})
+            );
+        }
         Commands::Upgrade { check } => {
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(20))
@@ -286,18 +480,20 @@ async fn main() -> anyhow::Result<()> {
                 json!({"ok":true,"devices":devices,"hint":"Enable USB debugging and authorize this computer on the phone"})
             );
         }
-        Commands::Connect { serial, port } => {
-            let devices = attached().await?;
-            let authorized: Vec<_> = devices.iter().filter(|d| d["state"] == "device").collect();
-            let serial = match serial {
-                Some(serial) if authorized.iter().any(|d| d["serial"] == serial) => serial,
-                Some(_) => anyhow::bail!(
-                    "Selected device is not attached and authorized; run android-use doctor"
-                ),
-                None if authorized.len() == 1 => authorized[0]["serial"].as_str().unwrap().into(),
-                _ => anyhow::bail!(
-                    "Select one authorized device using --serial; run android-use doctor"
-                ),
+        Commands::Connect {
+            serial,
+            port,
+            accessibility,
+            listen,
+        } => {
+            let serial = if accessibility {
+                anyhow::ensure!(
+                    serial.is_none(),
+                    "Use the paired device id, not --serial, for accessibility"
+                );
+                accessibility::load_pairing()?.device_id
+            } else {
+                select_serial(serial).await?
             };
             if let Ok(saved) = connection(None) {
                 let client = DaemonClient::new(saved.url.clone(), saved.token, cli.owner.clone())?;
@@ -314,9 +510,13 @@ async fn main() -> anyhow::Result<()> {
                     print_result(status)?;
                     return Ok(());
                 }
-                let response = client.request("/agent/disconnect", Some(json!({}))).await;
-                if response["error"] == "device_busy" {
-                    anyhow::bail!("Another session owns the existing daemon");
+                // Its owner already authorized shutdown. Do not attempt to
+                // reacquire that stopping session's lease; wait for its lock.
+                if status["error"] != "control_stopping" {
+                    let response = client.request("/agent/disconnect", Some(json!({}))).await;
+                    if response["error"] == "device_busy" {
+                        anyhow::bail!("Another session owns the existing daemon");
+                    }
                 }
             }
             let dir = backend::data_dir()?;
@@ -359,8 +559,13 @@ async fn main() -> anyhow::Result<()> {
             }
             #[cfg(windows)]
             daemon.creation_flags(0x00000008 | 0x00000200);
+            daemon.args(["serve", "--port", &port.to_string()]);
+            if accessibility {
+                daemon.args(["--accessibility", "--listen", &listen.to_string()]);
+            } else {
+                daemon.args(["--serial", &serial]);
+            }
             let mut child = daemon
-                .args(["serve", "--serial", &serial, "--port", &port.to_string()])
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(log)
@@ -405,7 +610,19 @@ async fn main() -> anyhow::Result<()> {
             serial,
             port,
             runner_jar,
+            accessibility,
+            listen,
         } => {
+            let pairing = if accessibility {
+                Some(accessibility::load_pairing()?)
+            } else {
+                None
+            };
+            let serial = pairing
+                .as_ref()
+                .map(|p| p.device_id.clone())
+                .or(serial)
+                .ok_or_else(|| anyhow::anyhow!("--serial required"))?;
             if serial.is_empty() || serial.len() > 255 || serial.chars().any(char::is_control) {
                 anyhow::bail!("Invalid Android serial");
             }
@@ -425,16 +642,36 @@ async fn main() -> anyhow::Result<()> {
             let listener =
                 tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
             let url = format!("http://{}", listener.local_addr()?);
-            let jar = match runner_jar {
-                Some(path) => path,
-                None => backend::setup_runner().await?,
-            };
-            // Host authorization remains stable for this device across reconnects.
-            // The device-side runner still uses a separate per-launch token.
             let token = device_token(&dir, &serial)?;
-            let mut device = AndroidBackend::connect(serial, &jar)
-                .await
-                .map_err(|e| anyhow::anyhow!("{}: {}", e.error, e.message))?;
+            let mut phone_server = None;
+            let mut device = if let Some(pair) = pairing {
+                let bridge = accessibility::Bridge::new(pair);
+                let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(
+                    dir.join("phone-cert.pem"),
+                    dir.join("phone-key.pem"),
+                )
+                .await?;
+                let listener = std::net::TcpListener::bind(listen)?;
+                listener.set_nonblocking(true)?;
+                let api = bridge.router();
+                let handle = axum_server::Handle::new();
+                let task_handle = handle.clone();
+                let task = tokio::spawn(async move {
+                    axum_server::from_tcp_rustls(listener, tls)
+                        .handle(task_handle)
+                        .serve(api.into_make_service())
+                        .await
+                });
+                phone_server = Some((handle, task));
+                AndroidBackend::from_accessibility(serial, bridge)
+            } else {
+                let jar = match runner_jar {
+                    Some(path) => path,
+                    None => backend::setup_runner().await?,
+                };
+                AndroidBackend::connect(serial, &jar).await
+            }
+            .map_err(|e| anyhow::anyhow!("{}: {}", e.error, e.message))?;
             if let Err(error) = save_connection(&Connection {
                 url: url.clone(),
                 token: token.clone(),
@@ -442,10 +679,19 @@ async fn main() -> anyhow::Result<()> {
                 device.close().await;
                 return Err(error);
             }
+            let bridge = device.bridge();
             let session = Arc::new(Mutex::new(Session::new(device)));
             let stopping = session.lock().await.control.stopping.clone();
             eprintln!("android-use listening at {url}; connection credentials saved privately");
-            let api = http::router(ApiState::new(session.clone(), token));
+            let api = http::router(
+                ApiState::new(session.clone(), token)
+                    .with_phone_bridge(bridge)
+                    .with_backend(if accessibility {
+                        "accessibility"
+                    } else {
+                        "adb"
+                    }),
+            );
             let served = axum::serve(listener, api)
                 .with_graceful_shutdown(async move {
                     tokio::select! {
@@ -456,6 +702,10 @@ async fn main() -> anyhow::Result<()> {
                 })
                 .await;
             session.lock().await.control.backend.close().await;
+            if let Some((handle, task)) = phone_server {
+                handle.shutdown();
+                let _ = task.await;
+            }
             served?;
         }
         command => {
@@ -511,7 +761,9 @@ async fn main() -> anyhow::Result<()> {
                     let _ = client.request("/agent/release", Some(json!({}))).await;
                     waited?;
                 }
-                Commands::Setup
+                Commands::Pair { .. }
+                | Commands::InstallApp { .. }
+                | Commands::Setup
                 | Commands::Serve { .. }
                 | Commands::Doctor
                 | Commands::Upgrade { .. }

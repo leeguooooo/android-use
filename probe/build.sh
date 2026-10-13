@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-# Developer only. Builds the signal probe (observer) and the stub service APKs.
+# Developer only. Builds observer, stub service and native/WebView fixture APKs.
 # Neither ships in releases. The debug keystore stays outside the repo.
 root=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
@@ -14,7 +14,7 @@ if [ ! -f "$keystore" ]; then
     keytool -genkeypair -keystore "$keystore" -storepass android -keypass android \
         -alias probe -keyalg RSA -keysize 2048 -validity 3650 -dname 'CN=android-use probe' >/dev/null
 fi
-for app in observer stub; do
+for app in observer stub fixture; do
     src="$root/$app"; out="$root/build/$app"
     rm -rf "$out"; mkdir -p "$out/classes" "$out/res"
     set --
@@ -32,4 +32,4 @@ for app in observer stub; do
     "$tools/apksigner" sign --ks "$keystore" --ks-pass pass:android --key-pass pass:android \
         --out "$root/build/$app.apk" "$out/aligned.apk"
 done
-ls -l "$root/build/observer.apk" "$root/build/stub.apk"
+ls -l "$root/build/observer.apk" "$root/build/stub.apk" "$root/build/fixture.apk"

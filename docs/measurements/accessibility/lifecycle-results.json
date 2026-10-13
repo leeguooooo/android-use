@@ -1,0 +1,55 @@
+{
+  "ordinary_service_removal": [
+    {
+      "ms": 592.04,
+      "drivable": false,
+      "error": "accessibility_unavailable"
+    },
+    {
+      "ms": 1127.47,
+      "drivable": false,
+      "error": "accessibility_unavailable"
+    },
+    {
+      "ms": 1719.45,
+      "drivable": false,
+      "error": "accessibility_unavailable"
+    },
+    {
+      "ms": 2335.36,
+      "drivable": false,
+      "error": "accessibility_unavailable"
+    },
+    {
+      "ms": 2951.53,
+      "drivable": false,
+      "error": "accessibility_unavailable"
+    },
+    {
+      "ms": 3485.8,
+      "drivable": false,
+      "error": "accessibility_unavailable"
+    },
+    {
+      "ms": 4256.01,
+      "drivable": true,
+      "error": null
+    }
+  ],
+  "other_services_preserved": true,
+  "force_stop_status": {
+    "drivable": false,
+    "error": "phone_disconnected",
+    "message": "Open android-use on the phone and check Wi-Fi",
+    "backend": "accessibility"
+  },
+  "force_stop_recovered_by_user_start": true,
+  "other_owner_refused_during_active_lease": true,
+  "explicit_stop": {
+    "outcome": "applied",
+    "error": null,
+    "drivable_after": false,
+    "own_service_disabled": true,
+    "other_services_preserved": true
+  }
+}

@@ -1,0 +1,58 @@
+[
+  {
+    "case": "empty_hint_append_unicode",
+    "passed": true,
+    "ms": 34.59,
+    "outcome": "applied",
+    "error": null
+  },
+  {
+    "case": "append_at_cursor",
+    "passed": true,
+    "ms": 30.4,
+    "outcome": "applied",
+    "error": null
+  },
+  {
+    "case": "replace_unicode",
+    "passed": true,
+    "ms": 40.2,
+    "outcome": "applied",
+    "error": null
+  },
+  {
+    "case": "clear_to_hint",
+    "passed": true,
+    "ms": 29.48,
+    "outcome": "applied",
+    "error": null
+  },
+  {
+    "case": "multiline",
+    "passed": true,
+    "ms": 132.21,
+    "outcome": "applied",
+    "error": null
+  },
+  {
+    "case": "synthetic_password_redacted",
+    "passed": true,
+    "ms": 60.06,
+    "outcome": "applied",
+    "error": null
+  },
+  {
+    "case": "password_append_refused",
+    "passed": true,
+    "ms": 31.58,
+    "outcome": "not_sent",
+    "error": "password_append_unsupported"
+  },
+  {
+    "case": "offline_webview_unicode",
+    "passed": true,
+    "ms": 242.3,
+    "outcome": "applied",
+    "error": null
+  }
+]

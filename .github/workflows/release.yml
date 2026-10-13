@@ -8,6 +8,7 @@ on:
       - 'shared/control/**'
       - 'shared/core/**'
       - 'Cargo.*'
+      - 'phone/**'
       - '.github/workflows/release.yml'
       - 'install.sh'
       - 'scripts/**'
@@ -57,12 +58,12 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Test shared core, Android protocol, CLI and MCP
-        run: cargo test -p core -p phone-control -p android-use --locked
+        run: cargo test --workspace --locked
       - name: Test installer
         if: runner.os != 'Windows'
         run: sh scripts/test-install.sh
       - name: Clippy
-        run: cargo clippy -p phone-control -p android-use --all-targets --locked -- -D warnings
+        run: cargo clippy -p phone-control -p android-use -p android-use-phone --all-targets --locked -- -D warnings
       - name: Build
         env:
           RUSTFLAGS: ${{ runner.os == 'Windows' && '-C target-feature=+crt-static' || '' }}
@@ -96,9 +97,49 @@ jobs:
         with:
           name: android-use-${{ matrix.name }}
           path: dist/*
+  phone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Android build tools and NDK
+        run: '{ yes || :; } | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"'
+      - name: Prepare release signing key
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_PHONE_KEYSTORE_BASE64 }}
+        run: |
+          python3 - <<'PY'
+          import base64, os, pathlib
+          value = os.environ.get('KEYSTORE', '')
+          if not value:
+              raise SystemExit('Configure ANDROID_PHONE_KEYSTORE_BASE64 and signing password secrets before an APK release')
+          p = pathlib.Path(os.environ['RUNNER_TEMP']) / 'phone.keystore'
+          p.write_bytes(base64.b64decode(value, validate=True))
+          p.chmod(0o600)
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('PHONE_KEYSTORE=' + str(p) + '\n')
+          PY
+      - name: Build companion APK
+        env:
+          PHONE_STORE_PASS: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.ANDROID_PHONE_STORE_PASS || 'android' }}
+          PHONE_KEY_PASS: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.ANDROID_PHONE_KEY_PASS || 'android' }}
+        run: phone/build.sh
+      - name: Validate 16 KiB page alignment
+        run: '"$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 4 phone/build/android-use-phone-arm64.apk'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-use-phone-arm64
+          path: |
+            phone/build/android-use-phone-arm64.apk
+            phone/build/android-use-phone-arm64.apk.sha256
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, verify-adapter]
+    needs: [build, verify-adapter, phone]
     runs-on: ubuntu-latest
     permissions:
       contents: write

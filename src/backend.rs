@@ -132,6 +132,7 @@ pub struct AndroidBackend {
     forward: Option<String>,
     adapter_token: Option<String>,
     remote_token: Option<String>,
+    bridge: Option<crate::accessibility::Bridge>,
 }
 impl AndroidBackend {
     /// Used for externally managed runners and protocol fixtures. No ADB
@@ -152,7 +153,22 @@ impl AndroidBackend {
             forward: None,
             adapter_token: None,
             remote_token: None,
+            bridge: None,
         })
+    }
+    pub fn from_accessibility(
+        device_id: String,
+        bridge: crate::accessibility::Bridge,
+    ) -> Result<Self, Failure> {
+        let mut backend = Self::from_endpoint(device_id, String::new())?;
+        backend.bridge = Some(bridge);
+        Ok(backend)
+    }
+    pub fn bridge(&self) -> Option<crate::accessibility::Bridge> {
+        self.bridge.clone()
+    }
+    pub fn is_accessibility(&self) -> bool {
+        self.bridge.is_some()
     }
     pub async fn connect(serial: String, jar: &Path) -> Result<Self, Failure> {
         let state = adb(&serial, &["get-state"], false).await?;
@@ -318,53 +334,58 @@ impl AndroidBackend {
                 )
             }
         };
-        let request = self.client.post(format!("{}/jsonrpc/0", self.rpc_url));
-        let request = if let Some(token) = &self.adapter_token {
-            request.bearer_auth(token)
+        let body: Value = if let Some(bridge) = &self.bridge {
+            bridge.call(method, params, mutation).await?
         } else {
-            request
-        };
-        let response = request
-            .header("Accept-Encoding", "")
-            .header("Content-Type", "application/json")
-            .body(ascii_json(
-                &json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}),
-            ))
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_connect() {
-                    Failure::not_sent(
-                        "runner_unreachable",
-                        "No request reached the UIAutomator service",
-                    )
-                } else {
-                    failure("rpc_transport_failed")
-                }
-            })?;
-        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(Failure::not_sent(
-                "runner_unauthorized",
-                "Runner authorization expired; reconnect the device session",
-            ));
-        }
-        if !response.status().is_success() {
-            return Err(failure("rpc_http_error"));
-        }
-        let mut response = response;
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| failure("rpc_body_failed"))?
-        {
-            if bytes.len() + chunk.len() > 4 * 1024 * 1024 {
-                return Err(failure("rpc_response_too_large"));
+            let request = self.client.post(format!("{}/jsonrpc/0", self.rpc_url));
+            let request = if let Some(token) = &self.adapter_token {
+                request.bearer_auth(token)
+            } else {
+                request
+            };
+            let response = request
+                .header("Accept-Encoding", "")
+                .header("Content-Type", "application/json")
+                .body(ascii_json(
+                    &json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}),
+                ))
+                .send()
+                .await
+                .map_err(|e| {
+                    if e.is_connect() {
+                        Failure::not_sent(
+                            "runner_unreachable",
+                            "No request reached the UIAutomator service",
+                        )
+                    } else {
+                        failure("rpc_transport_failed")
+                    }
+                })?;
+            if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+                return Err(Failure::not_sent(
+                    "runner_unauthorized",
+                    "Runner authorization expired; reconnect the device session",
+                ));
             }
-            bytes.extend_from_slice(&chunk);
-        }
-        let body: Value =
-            serde_json::from_slice(&bytes).map_err(|_| failure("rpc_invalid_response"))?;
+            if !response.status().is_success() {
+                return Err(failure("rpc_http_error"));
+            }
+            let mut response = response;
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .map_err(|_| failure("rpc_body_failed"))?
+            {
+                if bytes.len() + chunk.len() > 4 * 1024 * 1024 {
+                    return Err(failure("rpc_response_too_large"));
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            let body: Value =
+                serde_json::from_slice(&bytes).map_err(|_| failure("rpc_invalid_response"))?;
+            body
+        };
         if body.get("id") != Some(&json!(1))
             || body.get("jsonrpc") != Some(&json!("2.0"))
             || body.get("error").is_some()
@@ -374,7 +395,16 @@ impl AndroidBackend {
                     body.pointer("/error/message")
                         .and_then(Value::as_str)
                         .unwrap_or("runner_refused"),
-                    "Runner refused before dispatch; inspect the focused field or device state",
+                    if self.bridge.is_some() {
+                        match body.pointer("/error/message").and_then(Value::as_str) {
+                            Some("accessibility_unavailable") => "Enable android-use in Accessibility settings, or reopen the phone app after force-stop",
+                            Some("screen_unavailable") => "Unlock the phone and check the accessibility service",
+                            Some("screenshot_unavailable") => "Screenshots require Android 11/API 30 or newer and an unprotected screen",
+                            _ => "Phone refused before dispatch; inspect the focused field or device state",
+                        }
+                    } else {
+                        "Runner refused before dispatch; inspect the focused field or device state"
+                    },
                 ));
             }
             return Err(failure("rpc_error"));
@@ -395,6 +425,9 @@ impl AndroidBackend {
         }
     }
     pub async fn close(&mut self) {
+        if let Some(bridge) = &self.bridge {
+            bridge.close().await;
+        }
         if let Some(mut runner) = self.runner.take() {
             let _ = runner.kill().await;
             let _ = runner.wait().await;
@@ -411,7 +444,7 @@ impl AndroidBackend {
 }
 impl DeviceBackend for AndroidBackend {
     fn native_typing(&self) -> bool {
-        self.adapter_token.is_some()
+        self.adapter_token.is_some() || self.bridge.is_some()
     }
     fn supports_append(&self) -> bool {
         false
@@ -421,7 +454,7 @@ impl DeviceBackend for AndroidBackend {
     }
     fn read(&mut self) -> BackendFuture<'_, Screen> {
         Box::pin(async move {
-            if self.adapter_token.is_some() {
+            if self.native_typing() {
                 let value = self.rpc("screen", json!([]), false).await?;
                 let mut screen: Screen = serde_json::from_value(value).map_err(|_| {
                     Failure::not_sent("invalid_screen", "Runner returned invalid screen data")
@@ -528,6 +561,9 @@ impl DeviceBackend for AndroidBackend {
                     Ok(())
                 }
                 Dispatch::LaunchApp(app) => {
+                    if self.bridge.is_some() {
+                        return self.acknowledged("launchApp", json!([app])).await;
+                    }
                     let component = adb(
                         &self.serial,
                         &[
@@ -582,7 +618,25 @@ impl DeviceBackend for AndroidBackend {
     }
     fn screenshot(&mut self) -> BackendFuture<'_, Vec<u8>> {
         Box::pin(async move {
-            let bytes = adb(&self.serial, &["exec-out", "screencap", "-p"], false).await?;
+            let bytes = if self.bridge.is_some() {
+                use base64::Engine as _;
+                let result = self.rpc("screenshot", json!([]), false).await?;
+                base64::engine::general_purpose::STANDARD
+                    .decode(result.as_str().ok_or_else(|| {
+                        Failure::not_sent(
+                            "screenshot_unavailable",
+                            "Phone did not return a screenshot",
+                        )
+                    })?)
+                    .map_err(|_| {
+                        Failure::not_sent(
+                            "screenshot_unavailable",
+                            "Phone screenshot encoding invalid",
+                        )
+                    })?
+            } else {
+                adb(&self.serial, &["exec-out", "screencap", "-p"], false).await?
+            };
             if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") || bytes.len() > 32 * 1024 * 1024 {
                 return Err(Failure::not_sent(
                     "screenshot_unavailable",
