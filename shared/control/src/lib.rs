@@ -367,6 +367,9 @@ impl<B: DeviceBackend> Controller<B> {
         Ok(self.response(&screen, &id, since))
     }
     pub async fn status(&mut self) -> Value {
+        if self.stopping.load(std::sync::atomic::Ordering::Acquire) {
+            return json!({"ok":false,"platform":self.backend.platform(),"drivable":false,"error":"control_stopping","message":"This daemon is stopping; wait for its device lock to be released"});
+        }
         match self.backend.read().await {
             Ok(screen) => match screen.snapshot() {
                 Ok(_) => {
@@ -518,9 +521,13 @@ impl<B: DeviceBackend> Controller<B> {
         })
     }
     pub async fn execute(&mut self, batch: Batch) -> Value {
-        if batch.steps.is_empty() || batch.steps.len() > 32 || batch.settle_ms > 10_000 { // profile-use: allow; technical settle budget
-            return Failure::not_sent("invalid_batch", "Use 1..32 actions; maximum settle budget is ten seconds")
-                .json();
+        if batch.steps.is_empty() || batch.steps.len() > 32 || batch.settle_ms > 10_000 {
+            // profile-use: allow; technical settle budget
+            return Failure::not_sent(
+                "invalid_batch",
+                "Use 1..32 actions; maximum settle budget is ten seconds",
+            )
+            .json();
         }
         // Validate the entire batch before any backend read or mutation.
         for step in &batch.steps {

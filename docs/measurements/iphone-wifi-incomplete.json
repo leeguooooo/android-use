@@ -1,0 +1,97 @@
+{
+  "platform": "ios",
+  "device_model": "iPhone 17 Pro Max",
+  "ios": "27.0",
+  "version": "0.17.19",
+  "transport": "wifi-tunnel",
+  "read_samples": [
+    {
+      "ms": 314.13,
+      "bytes": 9714
+    },
+    {
+      "ms": 1146.24,
+      "bytes": 9774
+    },
+    {
+      "ms": 878.86,
+      "bytes": 9714
+    },
+    {
+      "ms": 478.21,
+      "bytes": 9714
+    },
+    {
+      "ms": 1074.81,
+      "bytes": 9774
+    },
+    {
+      "ms": 1033.59,
+      "bytes": 9717
+    },
+    {
+      "ms": 1544.22,
+      "bytes": 9775
+    },
+    {
+      "ms": 730.39,
+      "bytes": 9714
+    },
+    {
+      "ms": 702.1,
+      "bytes": 9714
+    },
+    {
+      "ms": 706.88,
+      "bytes": 9772
+    },
+    {
+      "ms": 567.05,
+      "bytes": 9714
+    },
+    {
+      "ms": 560.12,
+      "bytes": 9714
+    }
+  ],
+  "task_samples": [
+    {
+      "ms": 7523.42,
+      "bytes": 9524,
+      "passed": true,
+      "outcome": null,
+      "error": null,
+      "settled": true
+    },
+    {
+      "ms": 5935.46,
+      "bytes": 9483,
+      "passed": true,
+      "outcome": null,
+      "error": null,
+      "settled": true
+    },
+    {
+      "ms": 4747.5,
+      "bytes": 9580,
+      "passed": true,
+      "outcome": null,
+      "error": null,
+      "settled": true
+    }
+  ],
+  "model_round_trips": null,
+  "task": "Settings root to Bluetooth page; tap snapshot-bound text row, wait for Bluetooth Switch, independently read postcondition",
+  "comparison_limit": "Different phones, UI tasks and transports: iPhone Wi-Fi tunnel versus Android USB. Operational comparison only.",
+  "original_app_restored": false,
+  "released": true,
+  "planned_task_samples": 10,
+  "incomplete": true,
+  "interruption": {
+    "phase": "reset_before_round_4",
+    "http_status": 504
+  },
+  "read_p50_ms": 718.635,
+  "completed_task_p50_ms": 5935.46,
+  "original_app_restored_verified": true
+}

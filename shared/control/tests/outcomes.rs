@@ -382,3 +382,15 @@ async fn empty_wait_or_invalid_timeout_refuses_entire_batch() {
         assert!(control.backend.actions.is_empty());
     }
 }
+
+#[tokio::test]
+async fn stopping_status_never_reports_a_dying_daemon_as_ready() {
+    let mut control = Controller::new(Mock::new());
+    control
+        .stopping
+        .store(true, std::sync::atomic::Ordering::Release);
+    let result = control.status().await;
+    assert_eq!(result["drivable"], false);
+    assert_eq!(result["error"], "control_stopping");
+    assert_eq!(control.backend.reads, 0);
+}

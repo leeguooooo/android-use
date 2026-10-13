@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/leeguooooo/iphone-use",
-  "revision": "077ed55d24e979e93e6f82b928cc7a6abc1bb004",
+  "revision": "baf0aab454f1d18768993876caeaaa96fa54c41c",
   "paths": {
     "shared/core": "crates/core",
     "shared/control": "crates/control"
@@ -14,7 +14,7 @@
     "shared/core/src/progress.rs": "9b75ca42a570768ff2be14986d01dfcef7cfdd7ffc38e04fd1f60101ad42897a",
     "shared/core/src/runner_auth.rs": "6e6a42a5d6482799c1f67a996bdd648404071250f6dd06734e03cda3ccbc93be",
     "shared/control/Cargo.toml": "aaf0fc7434d2d108554ea7b8f96cf46dc1eab70c8ba1e3d1cd1bf1ae55d60a14",
-    "shared/control/tests/outcomes.rs": "cb9781c55a05e08f985d2e995ac78ae93035002ee2be78f68c9a7333cee13aed",
-    "shared/control/src/lib.rs": "9cf7a2c7b107b09b7a49fc95f405a31a9e69dcc0961594fab24bdadfe96f896c"
+    "shared/control/tests/outcomes.rs": "dfe4dedcbf439396303a4b14e864e7423389c73ed2143b7adb59609550d05760",
+    "shared/control/src/lib.rs": "de8a1107eb1d5b34495bfaa0f21dd2e4ad824526dd9e893c3462d3e60ae2491d"
   }
 }

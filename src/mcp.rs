@@ -33,6 +33,8 @@ impl DaemonClient {
             owner,
             client: reqwest::Client::builder()
                 .no_proxy()
+                // A reconnect replaces the daemon; never reuse its old TCP stream.
+                .pool_max_idle_per_host(0)
                 .timeout(Duration::from_secs(120))
                 .build()?,
         })
