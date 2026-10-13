@@ -1,0 +1,27 @@
+# android-use
+
+> Rust Android automation CLI and stdio MCP server for AI agents. Batch accessible screen reads, taps, Unicode input, gestures and semantic waits. A Wi-Fi TLS accessibility companion works without runtime ADB and reduces measured debugging signals; it is a development preview, not a promise of undetectability.
+
+Canonical repository: https://github.com/leeguooooo/android-use
+Publisher: leeguooooo. License: PolyForm Shield 1.0.0.
+The released ADB backend requires authorized USB debugging. The accessibility companion is an ARM64 development preview with manual text pairing or one-time ADB bootstrap. Confirm published functionality from GitHub Releases.
+
+Measured on 2026-10-13, Samsung SM-A155M / Android 16, without model calls: local native USB screen reads 55.07 ms median (12 samples); synthetic counter tasks 676.51 ms median (10/10); accessibility Wi-Fi Settings-to-Bluetooth tasks 3579.385 ms median (10/10), developer options off. These are different measurements, not a controlled comparison or model/token benchmark.
+
+Anti-detection evidence: developer and ADB settings were 0, adbd stopped, tested phone loopback control ports closed, runner jar absent. Accessibility services and input behavior remain observable. No commercial platform detection or account safety guarantee has been validated.
+
+## Product and setup
+
+- [English README](https://github.com/leeguooooo/android-use/blob/main/README.md): Product, install, MCP, measurements and questions.
+- [Chinese README](https://github.com/leeguooooo/android-use/blob/main/README.zh-CN.md): Performance, speed and reduced debugging exposure in Chinese.
+- [Published releases](https://github.com/leeguooooo/android-use/releases): Authoritative published binaries and release notes.
+- [Agent skill](https://github.com/leeguooooo/android-use/blob/main/skills/android-use/SKILL.md): MCP/CLI operation, leases and uncertain outcomes.
+
+## Primary measurements
+
+- [Acceptance conditions](https://github.com/leeguooooo/android-use/blob/main/docs/measurements/README.md): Hardware, artifact and transport limitations.
+- [Read and counter timings](https://github.com/leeguooooo/android-use/blob/main/docs/measurements/bench-results.json): USB pre-release adapter samples.
+- [Accessibility acceptance](https://github.com/leeguooooo/android-use/blob/main/docs/measurements/accessibility/acceptance.json): Development APK, inputs, lifecycle and remaining coverage.
+- [Wi-Fi Bluetooth task timings](https://github.com/leeguooooo/android-use/blob/main/docs/measurements/accessibility/settings-bluetooth.json): Ten verified tasks with developer options off.
+- [Detection signals](https://github.com/leeguooooo/android-use/blob/main/docs/measurements/accessibility/developer-off-signals.json): Ordinary observer findings, including remaining accessibility visibility.
+- [Published-archive MCP sample](https://github.com/leeguooooo/android-use/blob/main/docs/measurements/release-mcp-results.json): One v0.1.1 sample, text bytes and full RPC bytes measured separately.
