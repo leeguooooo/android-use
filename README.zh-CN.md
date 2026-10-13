@@ -23,17 +23,6 @@ android-use 提供 CLI 和 MCP 接口，供 Claude Code、Codex 和其他 AI Age
 
 读屏耗时、任务耗时和返回字节数分别衡量不同内容。这里没有模型耗时或 token 测量，也没有与竞品的受控对照，不能据此宣传“比某工具快几倍”。蓝牙持续扫描时，任务已完成，但 `settled:false` 仍是正确状态。
 
-## 反检测：减少调试信号暴露
-
-无障碍后端的卖点是**运行时不用 ADB**。真机普通权限检测 App 记录到：
-
-- `adb_enabled=0`，`development_settings_enabled=0`，控制仍能完成任务。
-- `adbd=stopped`，USB 状态为 `mtp`。
-- 手机上的控制端口 `19008` 关闭；手机主动连接电脑。
-- `/data/local/tmp` 中没有残留 runner jar。
-
-[查看原始检测数据](docs/measurements/accessibility/developer-off-signals.json)。已启用的无障碍服务仍然可见；Android 源码为无障碍生成的触摸事件设置了可观察的来源标志，目标控件也能观察 `ACTION_SET_TEXT`。详见 [平台源码核对](docs/measurements/platform-detection-research.json)。能看到包的 App 还可能查询设置授权。已对应用宝分发版小红书 9.50.0 做静态检查，发现读取无障碍开关与启用服务标识的入口，但未验证实际调用、上报和风控处罚。不能把这些结果说成“无法检测”或“不会封号”。
-
 ## 安装与接入
 
 已发布的 ADB 版本：
@@ -64,10 +53,6 @@ Agent 技能可通过 `npx skills add leeguooooo/android-use --skill android-use
 ### 比 Appium、UIAutomator 或截图式 Agent 快吗？
 
 目前没有受控对照支持这个结论。已有读屏和任务的具体耗时，可以用于复测；合并已知步骤能减少工具调用往返，最终速度还取决于模型和任务。ADB 后端本身使用固定版本的 UIAutomator 库与自研适配器。
-
-### “反检测”意味着无法识别自动化吗？
-
-这里指已经实测减少的调试信号：运行期间关闭 ADB 与开发者选项、不在手机开放控制端口、清理 runner 残留。无障碍服务和输入行为仍可被观察，不代表绕过某个平台的检测。
 
 ### 断线后会自动重发点击或输入吗？
 

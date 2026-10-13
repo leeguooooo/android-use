@@ -1,12 +1,12 @@
 # android-use — Fast Rust Android automation for AI agents
 
-[简体中文](README.zh-CN.md) · [GitHub Releases](https://github.com/leeguooooo/android-use/releases) · [Measured performance](#measured-performance) · [Anti-detection signals](#anti-detection-fewer-debugging-signals)
+[简体中文](README.zh-CN.md) · [GitHub Releases](https://github.com/leeguooooo/android-use/releases) · [Measured performance](#measured-performance)
 
 **Read the screen once. Batch the next steps. Control Android with USB debugging off.**
 
 android-use is a Rust Android automation CLI and MCP server for AI agents, including Claude Code, Codex and other MCP clients. It reads native and accessible WebView screens, taps, types Unicode, scrolls and verifies postconditions. Compact text and screen deltas reduce repeated output; batches let an agent send known actions and semantic waits in one tool call. Screenshots are available when the accessible tree is insufficient.
 
-Two backends use the same CLI/MCP interface: the released ADB backend and an ARM64 accessibility companion in development preview. The companion connects over paired Wi-Fi TLS and works with developer options and USB debugging disabled after setup. It reduces observable debugging signals; accessibility services and input actions remain observable.
+Two backends use the same CLI/MCP interface: the released ADB backend and an ARM64 accessibility companion in development preview. The companion connects over paired Wi-Fi TLS and works with developer options and USB debugging disabled after setup.
 
 ## Measured performance
 
@@ -20,20 +20,6 @@ Samsung SM-A155M, Android 16; fixed scripts without a model, measured on 2026-10
 | Four-step Bluetooth batch through MCP | **1,625 text bytes**, 3.69 s | One v0.1.1 release-archive sample, USB; full JSON-RPC response was 5,349 bytes; [raw record](docs/measurements/release-mcp-results.json) |
 
 Screen-read latency, complete-task latency and response size measure different things. They are not model response times, tokens or a speed comparison against another tool. Bluetooth discovery remained active, so those completed tasks correctly reported `settled:false`. Read the [hardware acceptance conditions](docs/measurements/README.md) and [development companion results](docs/measurements/accessibility/acceptance.json) before comparing figures.
-
-## Anti-detection: fewer debugging signals
-
-For people evaluating **Android automation without ADB**, the accessibility preview removes the need to keep USB debugging enabled during control. A normal-permission observer on the acceptance phone recorded:
-
-| Signal | Observed with the accessibility preview |
-|---|---|
-| USB debugging and developer options | Both `0` while phone control still worked |
-| `adbd` / USB transport | `stopped` / `mtp` |
-| Phone loopback control port `19008` | Closed; the phone connects outward to the computer |
-| Runner jar in `/data/local/tmp` | Absent |
-| Enabled accessibility service | Still visible |
-
-[Raw signal evidence](docs/measurements/accessibility/developer-off-signals.json) and [ADB/human input samples](docs/measurements/README.md#signal-probe-2026-10-13) describe what was actually observed. Android framework source marks accessibility-generated touch events with an observable origin flag, and target views can observe `ACTION_SET_TEXT`; see the [platform-source investigation](docs/measurements/platform-detection-research.json). A settings grant can also be visible when an app can see the package. These measurements support reduced debugging exposure, not undetectability or protection against account restrictions. A bounded static inspection of Tencent-distributed Xiaohongshu 9.50.0 found enabled-accessibility-service getters; no live platform detection or enforcement has been validated.
 
 ## Install the released ADB backend
 
@@ -116,7 +102,7 @@ The ADB installation path grants `WRITE_SECURE_SETTINGS`, preserves other enable
 
 A persistent notification and the phone app both offer a stop action. With the one-time settings grant, an enabled companion restores its own accessibility service when it is removed. After an explicit Android force-stop, open the app and start the saved pairing; Android prevents force-stopped apps from restarting themselves. Manual installs need accessibility re-enabled in Settings. On reboot, an enabled companion resumes its saved pairing. Disconnection never replays input.
 
-Release CI builds the APK with a checksum. Tagged releases require `ANDROID_PHONE_KEYSTORE_BASE64`, `ANDROID_PHONE_STORE_PASS` and `ANDROID_PHONE_KEY_PASS` repository secrets; pull requests use a separate development key. Development APKs must not be mistaken for signed release acceptance. Accessibility services and their input remain observable to other apps; this backend does not promise that platforms will accept automation.
+Release CI builds the APK with a checksum. Tagged releases require `ANDROID_PHONE_KEYSTORE_BASE64`, `ANDROID_PHONE_STORE_PASS` and `ANDROID_PHONE_KEY_PASS` repository secrets; pull requests use a separate development key. Development APKs must not be mistaken for signed release acceptance.
 
 
 ## Questions about Android MCP automation
@@ -132,10 +118,6 @@ The accessibility development preview controls a paired phone over Wi-Fi TLS wit
 ### Is android-use faster than Appium, UIAutomator or screenshot-based agents?
 
 There is no controlled head-to-head benchmark establishing that. The local native ADB adapter measured 55.07 ms median screen reads on one Samsung Android 16 phone. Batching known steps can reduce agent tool-call round trips; actual model latency and total task time depend on the workflow. The ADB backend itself uses a pinned UIAutomator library with a source-built adapter.
-
-### Does anti-detection mean automation cannot be detected?
-
-No. The tested companion removed active ADB/developer-option signals, phone control ports and runner artifacts while allowing control. Enabled accessibility services and automation input remain observable. This is a measured reduction of debugging signals, not a bypass guarantee for a particular app.
 
 ### Does reconnection repeat a tap or text input?
 

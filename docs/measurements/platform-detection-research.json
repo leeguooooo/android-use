@@ -174,7 +174,6 @@
     "Capture accessibility-origin flags in the synthetic observer on Samsung firmware.",
     "Evaluate server behavior only through permitted tests; no enforcement thresholds are established here."
   ],
-  "marketing_claim": "Runtime control without ADB and measured reduction of debugging signals. Do not claim undetectable automation or that Xiaohongshu accepts it.",
   "device_cleanup": {
     "temporary_usb_debugging_disabled": true,
     "development_options_value_left_unchanged": 1,

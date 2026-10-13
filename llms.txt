@@ -1,6 +1,6 @@
 # android-use
 
-> Rust Android automation CLI and stdio MCP server for AI agents. Batch accessible screen reads, taps, Unicode input, gestures and semantic waits. A Wi-Fi TLS accessibility companion works without runtime ADB and reduces measured debugging signals; it is a development preview, not a promise of undetectability.
+> Rust Android automation CLI and stdio MCP server for AI agents. Batch accessible screen reads, taps, Unicode input, gestures and semantic waits. A Wi-Fi TLS accessibility companion supports phone control without runtime ADB and is available as a development preview.
 
 Canonical repository: https://github.com/leeguooooo/android-use
 Publisher: leeguooooo. License: PolyForm Shield 1.0.0.
@@ -8,12 +8,11 @@ The released ADB backend requires authorized USB debugging. The accessibility co
 
 Measured on 2026-10-13, Samsung SM-A155M / Android 16, without model calls: local native USB screen reads 55.07 ms median (12 samples); synthetic counter tasks 676.51 ms median (10/10); accessibility Wi-Fi Settings-to-Bluetooth tasks 3579.385 ms median (10/10), developer options off. These are different measurements, not a controlled comparison or model/token benchmark.
 
-Anti-detection evidence: developer and ADB settings were 0, adbd stopped, tested phone loopback control ports closed, runner jar absent. Accessibility services and input behavior remain observable. Android framework source marks accessibility-injected touch events; target views can observe ACTION_SET_TEXT. This is platform-source evidence, not a live Xiaohongshu SDK capture. Tencent-distributed Xiaohongshu 9.50.0 statically contains getters for accessibility state and enabled services. Actual live detection, enforcement and account safety have not been validated.
 
 ## Product and setup
 
 - [English README](https://github.com/leeguooooo/android-use/blob/main/README.md): Product, install, MCP, measurements and questions.
-- [Chinese README](https://github.com/leeguooooo/android-use/blob/main/README.zh-CN.md): Performance, speed and reduced debugging exposure in Chinese.
+- [Chinese README](https://github.com/leeguooooo/android-use/blob/main/README.zh-CN.md): Product capabilities, performance, Wi-Fi control and setup in Chinese.
 - [Published releases](https://github.com/leeguooooo/android-use/releases): Authoritative published binaries and release notes.
 - [Agent skill](https://github.com/leeguooooo/android-use/blob/main/skills/android-use/SKILL.md): MCP/CLI operation, leases and uncertain outcomes.
 
@@ -25,5 +24,3 @@ Anti-detection evidence: developer and ADB settings were 0, adbd stopped, tested
 - [Wi-Fi Bluetooth task timings](https://github.com/leeguooooo/android-use/blob/main/docs/measurements/accessibility/settings-bluetooth.json): Ten verified tasks with developer options off.
 - [Detection signals](https://github.com/leeguooooo/android-use/blob/main/docs/measurements/accessibility/developer-off-signals.json): Ordinary observer findings, including remaining accessibility visibility.
 - [Published-archive MCP sample](https://github.com/leeguooooo/android-use/blob/main/docs/measurements/release-mcp-results.json): One v0.1.1 sample, text bytes and full RPC bytes measured separately.
-
-- [Platform detection research](https://github.com/leeguooooo/android-use/blob/main/docs/measurements/platform-detection-research.json): AOSP input-origin signals, settings redaction, Xiaohongshu policy and unverified APK/runtime behavior.

@@ -4,13 +4,11 @@
 
 ## 要解决的问题
 
-现在的链路是 `adb forward` → `app_process` 以 shell 身份跑 `Runner`，再通过 UiAutomation 读屏幕和注入输入（`src/backend.rs` 的 `AndroidBackend::connect`）。前提是开发者选项和 USB 调试都开着。部分 Android 系统允许普通 App 读取 `Settings.Global.ADB_ENABLED` 和 `DEVELOPMENT_SETTINGS_ENABLED`；较新 AOSP 已加入对应用 UID 返回 0 的遮蔽，具体取决于固件与系统开关。A155 原始样本能读出启用状态，但不能据此泛称所有 Android 版本都可读，也没有证据证明某商业 App 因此标记账号。
+现有 ADB 后端通过 `adb forward` 连接以 shell 身份运行的 `Runner`，再用 UiAutomation 读屏幕和注入输入。它需要保留相应调试能力。
 
-只换掉 u2 jar、自己写一个 runner 解决不了这个问题。App 查的是 ADB 开关，不管 runner 是谁写的。
+无障碍后端在手机安装 companion App，用 `AccessibilityService` 读屏幕、执行操作，再主动通过 Wi-Fi TLS 连接电脑。完成配对后，运行时无需 ADB，可以关闭开发者选项和 USB 调试。两种后端保持相同的 CLI/MCP 接口。
 
-新方案是在手机上装一个 android-use 自己的 App，用 `AccessibilityService` 读屏幕、做操作，通过网络连回电脑。开发者选项可以全关。
-
-这个方案是降低信号，不是消除信号。App 能用 `AccessibilityManager.getEnabledAccessibilityServiceList` 列出已启用的无障碍服务，风控 SDK 也会查。密码管理器、读屏软件同样用无障碍服务，启用服务本身不能证明恶意自动化。减少调试信号不等于已经验证平台风控风险下降。README 和 SKILL 不能写"不会被封"。Android 的无障碍手势还有可观察的事件来源标志，`ACTION_SET_TEXT` 也会在目标控件上执行；核对结果见 `docs/measurements/platform-detection-research.json`。
+目标是提供无线控制与另一种 Android API 适配方式。系统权限、服务生命周期、输入兼容性和各 Android 版本的能力边界需要分别验收。
 
 ## 两种后端并存
 
@@ -18,7 +16,7 @@
 |---|---|---|
 | 手机上装东西 | 不装 | 装一个 APK，开启无障碍权限 |
 | 开发者选项 | 必须开 | 可以关 |
-| 适用 | 测试、自家 App、不查调试状态的 App | 有风控的 App |
+| 适用 | 开发测试、系统诊断 | 通过 Wi-Fi 进行日常控制 |
 
 同一台手机同一时间只跑一种。A155 上实测，UiAutomation runner 在运行时，写入的无障碍服务设置会被清掉，或者服务启用了也不绑定；runner 退出后恢复正常。ADB 后端运行期间，`/data/local/tmp` 里的 runner jar 对普通 App 可见；断开时 `close()` 会删除它，token 文件在 runner 就绪后立即删除。`phone_status` 要报告当前是哪种后端。
 
@@ -56,7 +54,7 @@
 
 不需要自带输入法。`typeText` 现在就是 `ACTION_SET_TEXT`，不走按键事件，挪到无障碍服务里行为一致。现在就输不进去的字段（自绘控件、拿不到可编辑节点的 WebView），新后端同样输不进去。
 
-但 `ACTION_SET_TEXT` 对目标 App 是可见的：检测 App 在自己的输入框上收到了这次无障碍操作，文字一次整段写入，没有输入法调用和按键事件；真人用键盘输入是逐字 `commitText` 加按键事件。功能上不需要输入法，要降低这项信号就得自带输入法，逐字提交。放在第二阶段。
+但 `ACTION_SET_TEXT` 对目标 App 是可见的：检测 App 在自己的输入框上收到了这次无障碍操作，文字一次整段写入，没有输入法调用和按键事件；真人用键盘输入是逐字 `commitText` 加按键事件。当前实现不需要自带输入法。
 
 Android 8–10（API 26–29）没有 `takeScreenshot`。第一阶段在这些版本上让 `screenshot()` 返回 `screenshot_unavailable`，`phone_capabilities` 如实报告。录屏授权（MediaProjection）每次都要弹窗确认，以后再看要不要做。
 
@@ -122,9 +120,9 @@ APK 随 GitHub Release 发布，和 CLI 二进制放一起，附 SHA-256。签�
 
 没有电脑或不愿意开 ADB 的用户走手动路径：浏览器下载 APK 安装 → 应用信息 → 右上角菜单 → 允许受限设置 → 设置 → 无障碍 → 开启 android-use → 加电池优化白名单 → App 内扫 `android-use pair` 的二维码。这条路径没有 `WRITE_SECURE_SETTINGS`，掉了无障碍只能手动重开。
 
-被授予 `WRITE_SECURE_SETTINGS` 本身也是一个信号：能看到 android-use 包的 App 可以用 `PackageManager.checkPermission` 查到。比开着 ADB 弱得多，但同样不是零。
+`WRITE_SECURE_SETTINGS` 是安装时授予的设置权限；能看到该包的 App 可以查询授权状态。授权用于恢复 companion 自身的无障碍服务。
 
-包名和服务名不要带 `automation`、`auto`、`bot`、`script` 一类字样，避免被按名字匹配。
+包名和服务名使用固定标识，供安装、配对和服务生命周期管理使用。
 
 ## 和现有文档的冲突
 
