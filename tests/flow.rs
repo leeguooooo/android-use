@@ -1214,7 +1214,8 @@ async fn daemon_skips_tagged_flow_batches_names_the_lease_holder_and_old_daemons
     assert_eq!(draft["error"], "daemon_outdated");
     let message = draft["message"].as_str().unwrap();
     assert!(
-        message.contains("older android-use version")
+        message.starts_with("daemon is older than this binary")
+            && message.contains("restart with: ")
             && message.contains("disconnect && ")
             && message.contains(" connect"),
         "{message}"

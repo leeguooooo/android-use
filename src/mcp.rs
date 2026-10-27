@@ -140,7 +140,7 @@ pub fn outdated_daemon(path: &str) -> Value {
     let command = restart_command();
     let mut value = phone_control::Failure::not_sent(
         "daemon_outdated",
-        &format!("The running daemon is an older android-use version without {path}; restart it with this binary: {command}"),
+        &format!("daemon is older than this binary (it has no {path}); restart with: {command}"),
     )
     .json();
     value["next"] = json!(command);
