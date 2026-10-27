@@ -1,6 +1,7 @@
 use android_use::{
     accessibility,
     backend::{self, AndroidBackend},
+    flow,
     http::{self, ApiState, Session},
     mcp::{AndroidHandler, DaemonClient},
 };
@@ -93,6 +94,94 @@ enum Commands {
     Release,
     /// MCP stdio server; stdout is reserved for protocol messages.
     Mcp,
+    /// Saved flows: draft, validate, run, list, info, update, report, publish.
+    Flow {
+        #[command(subcommand)]
+        command: FlowCommand,
+    },
+}
+#[derive(Subcommand)]
+enum FlowCommand {
+    /// List flows in the registry (~/.android-use/flows or ANDROID_USE_FLOWS_DIR).
+    List {
+        #[arg(long)]
+        app: Option<String>,
+        #[arg(long)]
+        category: Option<String>,
+    },
+    /// Show one flow, its validation result and its last run.
+    Info { flow: String },
+    /// Validate a flow and print its plan without touching the device.
+    Validate {
+        flow: String,
+        #[arg(long = "input")]
+        inputs: Vec<String>,
+    },
+    /// Run a flow by registry id or file. Events go to stderr as JSON lines.
+    Run {
+        flow: String,
+        /// NAME=VALUE, repeatable.
+        #[arg(long = "input")]
+        inputs: Vec<String>,
+        /// First step to run (1-based, inclusive).
+        #[arg(long)]
+        from: Option<usize>,
+        /// Last step to run (1-based, inclusive).
+        #[arg(long)]
+        to: Option<usize>,
+        /// Validate and plan only; nothing is sent to the device.
+        #[arg(long)]
+        dry_run: bool,
+        /// Required for risk side_effect flows.
+        #[arg(long)]
+        confirm: bool,
+        /// Multiply every wait_for budget, e.g. 2 for a slow emulator.
+        #[arg(long, default_value_t = 1.0)]
+        timeout_scale: f64,
+        /// Run directory (default ~/.android-use/flow-runs/<flow>/<run-id>).
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// Record the screen with adb screenrecord while running (max 180 s).
+        #[arg(long)]
+        record: bool,
+        /// Capture adb logcat (-v epoch) for the run into the run directory.
+        #[arg(long)]
+        logcat: bool,
+        /// Save a screenshot after every step.
+        #[arg(long)]
+        screenshot_each: bool,
+        /// Do not echo events to stderr.
+        #[arg(long)]
+        quiet: bool,
+    },
+    /// Turn this owner's recorded steps into a flow draft.
+    Draft {
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Forget the recorded steps and start a new recording.
+        #[arg(long)]
+        reset: bool,
+    },
+    /// Sync the registry (git pull, or clone ANDROID_USE_FLOWS_REPO) and re-index.
+    Update,
+    /// Summarize a flow's last run; with --note and --confirm, file a report.
+    Report {
+        flow: String,
+        #[arg(long)]
+        note: Option<String>,
+        #[arg(long)]
+        confirm: bool,
+    },
+    /// Copy a validated flow file into the registry as ID (needs --confirm).
+    Publish {
+        source: PathBuf,
+        #[arg(long = "as")]
+        id: String,
+        #[arg(long)]
+        confirm: bool,
+        #[arg(long)]
+        allow_unverified: bool,
+    },
 }
 #[derive(Serialize, Deserialize)]
 struct Connection {
@@ -373,6 +462,51 @@ fn device_token(directory: &std::path::Path, serial: &str) -> anyhow::Result<Str
     Ok(token)
 }
 
+/// Flow commands that never touch the daemon (a dry run included).
+fn flow_needs_daemon(command: &FlowCommand) -> bool {
+    match command {
+        FlowCommand::Run { dry_run, .. } => !dry_run,
+        FlowCommand::Draft { .. } => true,
+        _ => false,
+    }
+}
+/// A device that refuses everything; dry runs never call it.
+struct NoDevice;
+impl flow::FlowDevice for NoDevice {
+    async fn actions(&self, _: Value) -> Value {
+        json!({"ok":false,"error":"no_device","outcome":"not_sent","retry_safe":true})
+    }
+    async fn elements(&self) -> Value {
+        json!({"ok":false,"error":"no_device"})
+    }
+    async fn status(&self) -> Value {
+        json!({"ok":false,"error":"no_device"})
+    }
+    async fn screenshot(&self) -> Result<Vec<u8>, String> {
+        Err("no device".into())
+    }
+}
+async fn plan(
+    registry: &std::path::Path,
+    target: &str,
+    inputs: &[String],
+    from: Option<usize>,
+    to: Option<usize>,
+) -> anyhow::Result<Value> {
+    let options = flow::RunOptions {
+        inputs: flow::parse_inputs(inputs).map_err(|e| anyhow::anyhow!(e))?,
+        from,
+        to,
+        dry_run: true,
+        ..Default::default()
+    };
+    Ok(
+        match flow::resolve(registry, target).and_then(|(id, path)| Ok((id, flow::load(&path)?))) {
+            Ok((id, doc)) => flow::run(&NoDevice, &id, &doc, options).await,
+            Err(message) => json!({"ok":false,"error":"flow_not_found","message":message}),
+        },
+    )
+}
 fn print_result(value: Value) -> anyhow::Result<()> {
     println!("{}", serde_json::to_string(&value)?);
     if value.get("ok") == Some(&json!(false)) {
@@ -708,6 +842,52 @@ async fn main() -> anyhow::Result<()> {
             }
             served?;
         }
+        Commands::Flow { command } if !flow_needs_daemon(&command) => {
+            let registry = flow::registry_dir()?;
+            let runs = flow::runs_root().ok();
+            let value = match command {
+                FlowCommand::List { app, category } => flow::list(
+                    &registry,
+                    runs.as_deref(),
+                    app.as_deref(),
+                    category.as_deref(),
+                ),
+                FlowCommand::Info { flow: target } => {
+                    flow::info(&registry, runs.as_deref(), &target)
+                }
+                FlowCommand::Validate {
+                    flow: target,
+                    inputs,
+                } => plan(&registry, &target, &inputs, None, None).await?,
+                FlowCommand::Run {
+                    flow: target,
+                    inputs,
+                    from,
+                    to,
+                    ..
+                } => plan(&registry, &target, &inputs, from, to).await?,
+                FlowCommand::Update => flow::update(&registry).await,
+                FlowCommand::Report {
+                    flow: target,
+                    note,
+                    confirm,
+                } => flow::report(
+                    &registry,
+                    runs.as_deref(),
+                    &target,
+                    note.as_deref(),
+                    confirm,
+                ),
+                FlowCommand::Publish {
+                    source,
+                    id,
+                    confirm,
+                    allow_unverified,
+                } => flow::publish(&registry, &source, &id, confirm, allow_unverified),
+                FlowCommand::Draft { .. } => unreachable!(),
+            };
+            print_result(value)?;
+        }
         command => {
             let connection = connection(cli.url)?;
             let owner = if matches!(command, Commands::Mcp) {
@@ -755,6 +935,52 @@ async fn main() -> anyhow::Result<()> {
                 Commands::Release => {
                     print_result(client.request("/agent/release", Some(json!({}))).await)?
                 }
+                Commands::Flow {
+                    command: FlowCommand::Draft { out, reset },
+                } => {
+                    if reset {
+                        print_result(client.request("/agent/flow/reset", Some(json!({}))).await)?;
+                    } else {
+                        let draft = client.request("/agent/flow/draft", None).await;
+                        print_result(flow::finish_draft(draft, out.as_deref()))?;
+                    }
+                }
+                Commands::Flow {
+                    command:
+                        FlowCommand::Run {
+                            flow: target,
+                            inputs,
+                            from,
+                            to,
+                            dry_run,
+                            confirm,
+                            timeout_scale,
+                            dir,
+                            record,
+                            logcat,
+                            screenshot_each,
+                            quiet,
+                        },
+                } => {
+                    let registry = flow::registry_dir()?;
+                    let (id, path) =
+                        flow::resolve(&registry, &target).map_err(|e| anyhow::anyhow!(e))?;
+                    let doc = flow::load(&path).map_err(|e| anyhow::anyhow!(e))?;
+                    let options = flow::RunOptions {
+                        inputs: flow::parse_inputs(&inputs).map_err(|e| anyhow::anyhow!(e))?,
+                        from,
+                        to,
+                        dry_run,
+                        confirm,
+                        timeout_scale,
+                        run_dir: dir,
+                        echo_events: !quiet,
+                        capture: flow::CaptureOptions { record, logcat },
+                        screenshot_each,
+                    };
+                    print_result(flow::run(&client, &id, &doc, options).await)?;
+                }
+                Commands::Flow { .. } => unreachable!(),
                 Commands::Mcp => {
                     let service = AndroidHandler::new(client.clone()).serve(stdio()).await?;
                     let waited = service.waiting().await;

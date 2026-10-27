@@ -136,6 +136,74 @@ pub struct TypeParams {
     pub clear: Option<bool>,
 }
 
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FlowListParams {
+    /// Only flows for this Android package.
+    pub app: Option<String>,
+    pub category: Option<String>,
+}
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FlowIdParams {
+    /// Registry id (dice/open-match) or a .json file path.
+    pub id: String,
+}
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FlowRunParams {
+    /// Registry id (dice/open-match) or a .json file path.
+    pub id: String,
+    /// Input values by name.
+    pub inputs: Option<std::collections::BTreeMap<String, String>>,
+    /// First step to run, 1-based inclusive.
+    pub from_step: Option<usize>,
+    /// Last step to run, 1-based inclusive.
+    pub to_step: Option<usize>,
+    /// Validate and plan only; nothing is sent to the device.
+    pub dry_run: Option<bool>,
+    /// Required for risk side_effect flows, after the user approved them.
+    pub confirm: Option<bool>,
+    /// Multiply every wait_for budget (slow emulator).
+    pub timeout_scale: Option<f64>,
+    /// Record the screen with adb screenrecord during the run (max 180 s).
+    pub record: Option<bool>,
+    /// Capture adb logcat for the run.
+    pub logcat: Option<bool>,
+}
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FlowDraftParams {
+    /// Write the draft to this file.
+    pub save_as: Option<String>,
+    /// Forget the recorded steps and start a new recording instead.
+    pub reset: Option<bool>,
+}
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FlowReportParams {
+    pub id: String,
+    /// What went wrong; filing it needs confirm=true.
+    pub note: Option<String>,
+    pub confirm: Option<bool>,
+}
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FlowPublishParams {
+    /// Flow file to publish.
+    pub source: String,
+    /// Registry id, e.g. dice/open-match.
+    pub id: String,
+    pub confirm: Option<bool>,
+    pub allow_unverified: Option<bool>,
+}
+
+fn flow_registry() -> Result<(std::path::PathBuf, Option<std::path::PathBuf>), Value> {
+    let registry = crate::flow::registry_dir()
+        .map_err(|e| json!({"ok":false,"error":"registry_unavailable","message":e.to_string()}))?;
+    Ok((registry, crate::flow::runs_root().ok()))
+}
+
 fn compact(value: &Value) -> String {
     let mut summary = value.clone();
     let rows = summary.as_object_mut().and_then(|o| o.remove("elements"));
@@ -269,6 +337,131 @@ impl AndroidHandler {
         }
     }
     #[tool(
+        description = "List saved Android flows (id, name, app, risk, verified, inputs, last run). Look here before driving an app step by step."
+    )]
+    async fn phone_flow_list(&self, Parameters(p): Parameters<FlowListParams>) -> CallToolResult {
+        match flow_registry() {
+            Ok((registry, runs)) => result(crate::flow::list(
+                &registry,
+                runs.as_deref(),
+                p.app.as_deref(),
+                p.category.as_deref(),
+            )),
+            Err(e) => result(e),
+        }
+    }
+    #[tool(description = "Show one flow: its steps, validation result and last run.")]
+    async fn phone_flow_info(&self, Parameters(p): Parameters<FlowIdParams>) -> CallToolResult {
+        match flow_registry() {
+            Ok((registry, runs)) => result(crate::flow::info(&registry, runs.as_deref(), &p.id)),
+            Err(e) => result(e),
+        }
+    }
+    #[tool(
+        description = "Run a saved flow step by step. Each step is one batch; never retried. dry_run validates without the device. from_step/to_step run a slice (1-based). On failure the result names the step, error, retry_safe, visible labels and paths of failure-elements.json / failure.png; never rerun from the top when applied_actions>0. Every run writes events.jsonl (epoch ms per step start/end) in its run dir. side_effect flows need confirm=true."
+    )]
+    async fn phone_flow_run(&self, Parameters(p): Parameters<FlowRunParams>) -> CallToolResult {
+        let (registry, _) = match flow_registry() {
+            Ok(v) => v,
+            Err(e) => return result(e),
+        };
+        let (id, doc) = match crate::flow::resolve(&registry, &p.id)
+            .and_then(|(id, path)| Ok((id, crate::flow::load(&path)?)))
+        {
+            Ok(v) => v,
+            Err(message) => {
+                return result(json!({"ok":false,"error":"flow_not_found","message":message}))
+            }
+        };
+        let options = crate::flow::RunOptions {
+            inputs: p.inputs.unwrap_or_default(),
+            from: p.from_step,
+            to: p.to_step,
+            dry_run: p.dry_run.unwrap_or(false),
+            confirm: p.confirm.unwrap_or(false),
+            timeout_scale: p.timeout_scale.unwrap_or(1.0),
+            capture: crate::flow::CaptureOptions {
+                record: p.record.unwrap_or(false),
+                logcat: p.logcat.unwrap_or(false),
+            },
+            ..Default::default()
+        };
+        let mut value = crate::flow::run(&self.client, &id, &doc, options).await;
+        // The per-step timings stay in result.json; keep the model's view short.
+        if let Some(object) = value.as_object_mut() {
+            if object
+                .get("timings")
+                .and_then(Value::as_array)
+                .is_some_and(|t| t.len() > 40)
+            {
+                object.insert("timings".into(), json!("see result.json in dir"));
+            }
+        }
+        result(value)
+    }
+    #[tool(
+        description = "Turn the steps this session applied into a flow v1 draft (typed text becomes text1.. inputs and is not recorded; index taps become label taps). save_as writes it. reset=true starts a fresh recording. Fix its todo list, run it once, then publish."
+    )]
+    async fn phone_flow_draft(&self, Parameters(p): Parameters<FlowDraftParams>) -> CallToolResult {
+        if p.reset == Some(true) {
+            return result(
+                self.client
+                    .request("/agent/flow/reset", Some(json!({})))
+                    .await,
+            );
+        }
+        let draft = self.client.request("/agent/flow/draft", None).await;
+        result(crate::flow::finish_draft(
+            draft,
+            p.save_as.as_deref().map(std::path::Path::new),
+        ))
+    }
+    #[tool(
+        description = "Sync the local flow registry (git pull when it is a checkout, or clone ANDROID_USE_FLOWS_REPO) and re-index."
+    )]
+    async fn phone_flow_update(&self) -> CallToolResult {
+        match flow_registry() {
+            Ok((registry, _)) => result(crate::flow::update(&registry).await),
+            Err(e) => result(e),
+        }
+    }
+    #[tool(
+        description = "Summarize a flow's last run (failed step, error, artifacts). With note and confirm=true, file a report in the registry's reports/ directory. Ask the user first."
+    )]
+    async fn phone_flow_report(
+        &self,
+        Parameters(p): Parameters<FlowReportParams>,
+    ) -> CallToolResult {
+        match flow_registry() {
+            Ok((registry, runs)) => result(crate::flow::report(
+                &registry,
+                runs.as_deref(),
+                &p.id,
+                p.note.as_deref(),
+                p.confirm.unwrap_or(false),
+            )),
+            Err(e) => result(e),
+        }
+    }
+    #[tool(
+        description = "Save a validated flow file into the local registry under id. Needs confirm=true after the user agreed; unverified flows (no verified_on) need allow_unverified=true."
+    )]
+    async fn phone_flow_publish(
+        &self,
+        Parameters(p): Parameters<FlowPublishParams>,
+    ) -> CallToolResult {
+        match flow_registry() {
+            Ok((registry, _)) => result(crate::flow::publish(
+                &registry,
+                std::path::Path::new(&p.source),
+                &p.id,
+                p.confirm.unwrap_or(false),
+                p.allow_unverified.unwrap_or(false),
+            )),
+            Err(e) => result(e),
+        }
+    }
+    #[tool(
         description = "Release this MCP session's Android device lease so another agent or CLI caller can control it."
     )]
     async fn phone_release(&self) -> CallToolResult {
@@ -280,7 +473,7 @@ impl ServerHandler for AndroidHandler {
     fn get_info(&self) -> rmcp::model::ServerInfo {
         rmcp::model::InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("android-use",env!("CARGO_PKG_VERSION")))
-            .with_instructions("Control one Android device through a shared phone-control core. Start with phone_capabilities and phone_elements. Prefer batching visible actions. Never replay unknown or partially completed actions. Release the lease when finished.")
+            .with_instructions("Control one Android device through a shared phone-control core. Start with phone_capabilities and phone_elements. Check phone_flow_list for a saved flow before driving step by step. Prefer batching visible actions. Never replay unknown or partially completed actions. Release the lease when finished.")
     }
 }
 

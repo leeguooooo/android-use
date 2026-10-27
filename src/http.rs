@@ -17,12 +17,17 @@ use tokio::sync::Mutex;
 pub struct Session<B> {
     pub control: Controller<B>,
     owner: Option<(String, Instant)>,
+    trail: crate::trail::Trail,
+    /// Whose steps the trail holds; a draft is only shown to them.
+    trail_owner: Option<String>,
 }
 impl<B: DeviceBackend> Session<B> {
     pub fn new(backend: B) -> Self {
         Self {
             control: Controller::new(backend),
             owner: None,
+            trail: Default::default(),
+            trail_owner: None,
         }
     }
     fn acquire(&mut self, owner: &str) -> Result<(), Failure> {
@@ -36,6 +41,10 @@ impl<B: DeviceBackend> Session<B> {
         }
         if self.owner.as_ref().is_none_or(|(held, _)| held != owner) {
             self.control.clear_history();
+        }
+        if self.trail_owner.as_deref() != Some(owner) {
+            self.trail.reset();
+            self.trail_owner = Some(owner.into());
         }
         self.owner = Some((owner.into(), Instant::now() + Duration::from_secs(30)));
         Ok(())
@@ -129,6 +138,8 @@ pub fn router<B: DeviceBackend + 'static>(state: ApiState<B>) -> Router {
         .route("/agent/input", post(input::<B>))
         .route("/agent/release", post(release::<B>))
         .route("/agent/disconnect", post(disconnect::<B>))
+        .route("/agent/flow/draft", get(flow_draft::<B>))
+        .route("/agent/flow/reset", post(flow_reset::<B>))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state)
 }
@@ -177,7 +188,10 @@ async fn elements<B: DeviceBackend>(
         return failure(e);
     }
     match session.control.elements(query.since.as_deref()).await {
-        Ok(v) => Json(v).into_response(),
+        Ok(v) => {
+            session.trail.note_screen(&v);
+            Json(v).into_response()
+        }
         Err(e) => failure(e),
     }
 }
@@ -211,6 +225,7 @@ async fn actions<B: DeviceBackend>(
         Ok(o) => o,
         Err(e) => return failure(e),
     };
+    let steps = body["steps"].as_array().cloned().unwrap_or_default();
     let batch = match serde_json::from_value::<Batch>(body) {
         Ok(b) => b,
         Err(_) => {
@@ -224,7 +239,9 @@ async fn actions<B: DeviceBackend>(
     if let Err(e) = session.acquire(&owner) {
         return failure(e);
     }
-    Json(session.control.execute(batch).await).into_response()
+    let result = session.control.execute(batch).await;
+    session.trail.note_batch(&steps, &result);
+    Json(result).into_response()
 }
 async fn input<B: DeviceBackend>(
     State(state): State<ApiState<B>>,
@@ -263,7 +280,49 @@ async fn release<B: DeviceBackend>(
     }
     session.owner = None;
     session.control.clear_history();
+    session.trail.rotate();
     Json(json!({"ok":true,"released":true})).into_response()
+}
+/// The owner's recorded steps as a flow v1 draft (read-only).
+async fn flow_draft<B: DeviceBackend>(
+    State(state): State<ApiState<B>>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    let owner = match state.caller(&headers) {
+        Ok(o) => o,
+        Err(e) => return failure(e),
+    };
+    let session = state.session.lock().await;
+    if session
+        .owner
+        .as_ref()
+        .is_some_and(|(held, until)| held != &owner && *until > Instant::now())
+    {
+        return failure(Failure::not_sent(
+            "device_busy",
+            "Another caller holds the device and its trail",
+        ));
+    }
+    if session.trail_owner.as_deref() != Some(owner.as_str()) {
+        return Json(crate::trail::Trail::default().draft()).into_response();
+    }
+    Json(session.trail.draft()).into_response()
+}
+/// Start a fresh recording for this owner.
+async fn flow_reset<B: DeviceBackend>(
+    State(state): State<ApiState<B>>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    let owner = match state.caller(&headers) {
+        Ok(o) => o,
+        Err(e) => return failure(e),
+    };
+    let mut session = state.session.lock().await;
+    if let Err(e) = session.acquire(&owner) {
+        return failure(e);
+    }
+    session.trail.reset();
+    Json(json!({"ok":true,"reset":true})).into_response()
 }
 
 async fn disconnect<B: DeviceBackend>(
