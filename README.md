@@ -64,6 +64,54 @@ android-use disconnect
 
 `release` gives up the caller's lease; `disconnect` shuts down that connection and removes its runner and ADB forward. Reconnecting restarts an unhealthy connection after its owner releases it. MCP authorization stays valid when the same phone reconnects. Each phone has a process lock and each caller has an expiring lease. A different active owner cannot be displaced.
 
+## Flows
+
+A flow is a saved, validated list of steps replayed one step per batch, so each step gets its own outcome, timing and failure capture. Flows live in `~/.android-use/flows/<category>/<slug>.json` (override with `ANDROID_USE_FLOWS_DIR`); runs write to `~/.android-use/flow-runs/<flow>/<run-id>/`.
+
+```sh
+android-use flow list [--app PACKAGE] [--category dice]
+android-use flow info dice/open-match
+android-use flow validate ./draft.json                  # offline, prints the plan
+android-use flow run dice/open-match --input nick=Ann   # events as JSON lines on stderr
+android-use flow run dice/open-match --dry-run --from 4 --to 9
+android-use flow run dice/open-match --record --logcat --timeout-scale 2
+android-use --owner rec flow draft --reset              # start recording this owner's steps
+android-use --owner rec flow draft --out ./draft.json   # recorded steps as a v1 draft
+android-use flow publish ./draft.json --as dice/open-match --confirm
+android-use flow report dice/open-match [--note "Play moved" --confirm]
+android-use flow update                                 # git pull, or clone ANDROID_USE_FLOWS_REPO
+```
+
+MCP: `phone_flow_list`, `phone_flow_info`, `phone_flow_run`, `phone_flow_draft`, `phone_flow_update`, `phone_flow_report`, `phone_flow_publish`.
+
+Format (v1, closed top-level fields `version, name, description, app, category, risk, locale, tags, inputs, example_inputs, verified_on, steps`):
+
+```json
+{
+  "version": 1, "name": "Open match", "app": "com.example.dice", "category": "dice", "risk": "navigation",
+  "inputs": { "nick": { "description": "player name" } },
+  "steps": [
+    { "kind": "launch_app", "app": "com.example.dice" },
+    { "kind": "wait_for", "expect": { "app": "com.example.dice" }, "timeout_ms": 60000 },
+    { "kind": "pause", "ms": 3000, "note": "splash has no elements" },
+    { "kind": "mark", "name": "menu_ready" },
+    { "kind": "tap", "label": "Play", "element_kind": "Button" },
+    { "kind": "tap", "x": 0.5, "y": 0.82, "optional": true },
+    { "kind": "type", "input": "nick", "clear": true },
+    { "kind": "screenshot", "name": "lobby" }
+  ]
+}
+```
+
+Device steps are the `act` actions (`tap, longpress, swipe, scroll, type, back, home, launch_app, wait_for`) with `kind` in place of `type`; a tap's element kind is `element_kind`. Runner steps never reach the device: `pause` (≤ 60 s; prefer `wait_for`), `mark` (a named timing event) and `screenshot`. `wait_for` may wait up to 300 s. Any step takes `note`; `optional:true` skips a step that failed without sending anything; `settle_ms` observes the screen after it. Only `type` steps reference inputs, and every declared input must be used. `risk:"side_effect"` needs `--confirm`.
+
+Debugging a run:
+
+- `events.jsonl` has `flow_start`, `step_start`, `step_end` (`ok`, `elapsed_ms`, `error`, `outcome`, `retry_safe`), `mark`, `step_skipped` and `flow_end`, each with `ts_ms` (epoch ms), `ts` (UTC) and `t_ms` (since start). On an emulator the device clock is the host clock, so `ts_ms` lines up with `adb logcat -v epoch` and with screen recordings; `--record`/`--logcat` also log a `clock` event with the measured device offset.
+- A failure names the step (`step 4/12 (tap label="Play") failed: ambiguous_element — …`), lists visible labels, and saves `failure-elements.json` and `failure.png` in the run directory. `--screenshot-each` keeps one image per step.
+- Nothing is retried. When `applied_actions > 0` the run is not replayable: read the screen, then resume with `--from N` as the hint says.
+- `--record` wraps `adb shell screenrecord` (Android stops it at 180 s) and pulls `screen.mp4`; `--logcat` saves `logcat.txt`. Both need the ADB backend.
+
 ## Input and results
 
 Input goes to the focused editable field. Normal text inserts at the current selection; `clear:true` replaces the field. Chinese, Japanese, emoji and multiline text stay intact without touching the computer's clipboard. Password replacement is redacted; password append is refused. WebView input needs an editable accessibility node. Android 8/API 26 or newer is supported by the adapter; real hardware acceptance covers Samsung SM-A155M, Android 16, over USB for ADB and Wi-Fi for the development companion.

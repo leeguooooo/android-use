@@ -31,6 +31,12 @@ Type only after confirming the foreground app and focused editable field. `phone
 
 Use `phone_screenshot` only when the tree does not answer the question. Protected surfaces may be blank. Release the caller's lease with `phone_release` / `android-use release` when done; the connection stays ready for the next task.
 
+## Flows
+
+Before driving an app step by step, check `phone_flow_list` / `android-use flow list --app PACKAGE`; a saved flow does the task in one call: `phone_flow_run(id, inputs)` / `android-use flow run ID --input name=value`. Use `dry_run` (`--dry-run`) to validate without the device. A failed run names the step, error, `retry_safe`, visible labels and the paths of `failure-elements.json` and `failure.png`; when `applied_actions > 0` never rerun from the top — read the screen and resume with `from_step` / `--from N`. Each run writes `events.jsonl` with epoch-ms `step_start`/`step_end` events for aligning with `adb logcat -v epoch` and recordings; `--record` and `--logcat` capture both during the run. `side_effect` flows need confirm after the user approved them.
+
+To save a new flow, ask the user first. Then `phone_flow_draft(reset=true)`, perform the task, `phone_flow_draft(save_as=...)`; fix its `todo` (names, a `wait_for` or `pause` after each screen change, labels over coordinates), run it once, add `verified_on`, and `phone_flow_publish(source, id, confirm=true)` with their OK. Typed text becomes `text1`… inputs and is never recorded. Format and step kinds are in the README's Flows section.
+
 ## Accessibility companion
 
 A development companion supports Wi-Fi control without runtime ADB. Build with `ANDROID_SDK_ROOT=/path/to/sdk phone/build.sh`; create private pairing with `android-use pair --host COMPUTER_LAN_IP`, then `android-use install-app --apk phone/build/android-use-phone-arm64.apk` while USB debugging is temporarily authorized. Stop an existing ADB runner, then use `android-use connect --accessibility`. Confirm `backend:accessibility` and `drivable:true` before turning developer options off. Screenshots need API 30+. Pairing text is secret; do not print, publish or commit it. The phone app and persistent notification can stop control. After force-stop, the user must reopen the app; reconnection never replays actions.
