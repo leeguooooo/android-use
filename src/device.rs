@@ -197,3 +197,130 @@ pub fn device_suspect(error: &str) -> bool {
     ) || error.starts_with("runner_")
         || error.starts_with("rpc_")
 }
+
+/// One verdict from the daemon's status and the host-side diagnosis:
+/// `{ok, code, message, next, lost}`. `lost` means the device or its control
+/// path went away, so any step in flight may or may not have acted.
+pub fn classify(status: &Value, health: Option<&Value>) -> Value {
+    let verdict = |code: &str, message: String, next: String, lost: bool| json!({"ok":false,"code":code,"message":message,"next":next,"lost":lost});
+    let status_message = status["message"].as_str().unwrap_or("").to_string();
+    match status["error"].as_str() {
+        Some("daemon_unreachable") => {
+            return verdict(
+                "daemon_not_running",
+                "The android-use daemon is not running (or died with the USB connection)".into(),
+                "Run `android-use connect` (add --serial SERIAL when several phones are attached), then `android-use status`".into(),
+                true,
+            )
+        }
+        Some("daemon_outdated") => {
+            return verdict(
+                "daemon_outdated",
+                status_message,
+                status["next"].as_str().unwrap_or("").into(),
+                true,
+            )
+        }
+        _ => {}
+    }
+    if let Some(problem) = health.and_then(|h| h["problem"].as_str()) {
+        let hint = health
+            .and_then(|h| h["hint"].as_str())
+            .unwrap_or("")
+            .to_string();
+        let serial = health
+            .and_then(|h| h["serial"].as_str())
+            .unwrap_or("unknown serial");
+        let (code, message, lost) = match problem {
+            "missing" => (
+                "device_not_attached",
+                format!("Phone not attached over ADB ({serial})"),
+                true,
+            ),
+            "unauthorized" => (
+                "device_unauthorized",
+                format!("Phone has not authorized this computer for USB debugging ({serial})"),
+                true,
+            ),
+            "offline" => (
+                "device_offline",
+                format!("Phone is attached but offline to ADB ({serial})"),
+                true,
+            ),
+            "no permissions" => (
+                "device_no_permissions",
+                format!("The host has no permission to open the phone ({serial})"),
+                true,
+            ),
+            "adb_unavailable" => ("adb_unavailable", "adb did not answer".to_string(), true),
+            "asleep" => (
+                "screen_off",
+                format!("Phone screen is off ({serial})"),
+                false,
+            ),
+            "locked" => (
+                "device_locked",
+                format!("Phone shows its lock screen ({serial})"),
+                false,
+            ),
+            other => {
+                return verdict(
+                    &format!("device_{}", other.replace(' ', "_")),
+                    format!("Phone is {other} ({serial})"),
+                    hint,
+                    true,
+                )
+            }
+        };
+        return verdict(code, message, hint, lost);
+    }
+    if status["drivable"] != true {
+        let error = status["error"].as_str().unwrap_or("not_drivable");
+        if error == "control_stopping" {
+            return verdict(
+                "daemon_stopping",
+                "The daemon is shutting down".into(),
+                "Wait a few seconds, then run `android-use connect`".into(),
+                true,
+            );
+        }
+        return verdict(
+            "runner_not_running",
+            format!("The phone is attached but the daemon cannot read its screen ({error}: {status_message})"),
+            "Restart control: `android-use disconnect` then `android-use connect`; if it repeats, replug the phone and run `android-use doctor`".into(),
+            true,
+        );
+    }
+    json!({"ok":true,"code":null,"lost":false})
+}
+
+/// Replace typed input values and editable-field contents in an element tree,
+/// so failure captures never keep what the flow typed.
+pub fn redact(mut tree: Value, secrets: &[(String, String)]) -> Value {
+    let scrub = |text: &str| {
+        let mut text = text.to_string();
+        for (name, value) in secrets {
+            if !value.is_empty() {
+                text = text.replace(value.as_str(), &format!("<input:{name}>"));
+            }
+        }
+        text
+    };
+    if let Some(rows) = tree.get_mut("elements").and_then(Value::as_array_mut) {
+        for row in rows {
+            let editable = row["kind"] == "TextField" || row["password"] == true;
+            if let Some(value) = row.get_mut("value") {
+                if editable && value.is_string() {
+                    *value = json!("<redacted>");
+                } else if let Some(text) = value.as_str() {
+                    *value = json!(scrub(text));
+                }
+            }
+            if let Some(label) = row.get("label").and_then(Value::as_str) {
+                let label = scrub(label);
+                row["label"] = json!(label);
+            }
+        }
+    }
+    tree
+}

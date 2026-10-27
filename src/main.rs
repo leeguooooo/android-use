@@ -156,6 +156,9 @@ enum FlowCommand {
         /// Skip the USB/awake/unlocked device check before step 1.
         #[arg(long)]
         no_preflight: bool,
+        /// Also record this run's steps in this owner's draft trail.
+        #[arg(long)]
+        record_trail: bool,
     },
     /// Turn this owner's recorded steps into a flow draft.
     Draft {
@@ -481,7 +484,7 @@ fn flow_needs_daemon(command: &FlowCommand) -> bool {
 /// A device that refuses everything; dry runs never call it.
 struct NoDevice;
 impl flow::FlowDevice for NoDevice {
-    async fn actions(&self, _: Value) -> Value {
+    async fn actions(&self, _: Value, _: bool) -> Value {
         json!({"ok":false,"error":"no_device","outcome":"not_sent","retry_safe":true})
     }
     async fn elements(&self) -> Value {
@@ -982,6 +985,7 @@ async fn main() -> anyhow::Result<()> {
                             screenshot_each,
                             quiet,
                             no_preflight,
+                            record_trail,
                         },
                 } => {
                     let registry = flow::registry_dir()?;
@@ -1000,6 +1004,7 @@ async fn main() -> anyhow::Result<()> {
                         capture: flow::CaptureOptions { record, logcat },
                         screenshot_each,
                         preflight: !no_preflight,
+                        record_trail,
                     };
                     print_result(flow::run(&client, &id, &doc, options).await)?;
                 }

@@ -26,9 +26,14 @@ struct Mock {
     health: Mutex<Vec<Value>>,
     diagnosed: Mutex<usize>,
     backend: Option<&'static str>,
+    /// Scripted daemon status replies after the first (default healthy).
+    statuses: Mutex<Vec<Value>>,
+    /// record_trail flag of every batch.
+    trail_flags: Mutex<Vec<bool>>,
 }
 impl FlowDevice for Mock {
-    async fn actions(&self, batch: Value) -> Value {
+    async fn actions(&self, batch: Value, record_trail: bool) -> Value {
+        self.trail_flags.lock().unwrap().push(record_trail);
         let mut batches = self.batches.lock().unwrap();
         let n = batches.len();
         let wait = batch["steps"][0]["type"] == "wait_for";
@@ -48,6 +53,10 @@ impl FlowDevice for Mock {
             {"index":1,"kind":"StaticText","label":"","visible":true}]})
     }
     async fn status(&self) -> Value {
+        let mut statuses = self.statuses.lock().unwrap();
+        if !statuses.is_empty() {
+            return statuses.remove(0);
+        }
         json!({"ok":true,"device":"R5CT1234","app":"com.dice.game","drivable":true,"backend":self.backend.unwrap_or("adb")})
     }
     async fn diagnose(&self, serial: &str) -> Value {
@@ -759,7 +768,7 @@ async fn preflight_refuses_an_unauthorized_or_locked_phone_before_any_step() {
         ),
         (
             json!({"ok":false,"problem":"asleep","hint":"wake it"}),
-            "device_asleep",
+            "screen_off",
         ),
     ] {
         let dir = tempfile::tempdir().unwrap();
@@ -811,7 +820,7 @@ async fn usb_disconnect_mid_run_is_named_and_never_replayed() {
         result["message"]
             .as_str()
             .unwrap()
-            .contains("device missing"),
+            .contains("device_not_attached"),
         "{result}"
     );
     let hint = result["hint"].as_str().unwrap();
@@ -850,11 +859,8 @@ async fn a_wait_that_times_out_on_a_locked_phone_says_so() {
     assert!(result["message"]
         .as_str()
         .unwrap()
-        .contains("device locked"));
-    assert!(result["hint"]
-        .as_str()
-        .unwrap()
-        .starts_with("The phone is locked"));
+        .contains("device_locked"));
+    assert!(result["hint"].as_str().unwrap().contains("unlock it"));
     // Not lost: the screen is still captured for debugging.
     assert!(dir.path().join("failure-elements.json").exists());
 }
@@ -915,4 +921,304 @@ async fn diagnose_runs_read_only_adb_commands() {
         !calls.contains("OFF1 shell"),
         "never shells into an unauthorized device"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Preflight codes, daemon versions, lease holder, redaction, trail tagging
+// ---------------------------------------------------------------------------
+
+fn healthy_status() -> Value {
+    json!({"ok":true,"device":"R5CT1234","app":"com.dice.game","drivable":true,"backend":"adb"})
+}
+
+#[test]
+fn classify_gives_each_failure_its_own_code_and_next_action() {
+    let ok = healthy_status();
+    let h = |problem: &str| json!({"ok":false,"problem":problem,"serial":"R5CT1234","hint":device::hint_for(problem)});
+    let cases = [
+        (
+            ok.clone(),
+            Some(h("missing")),
+            "device_not_attached",
+            "cable",
+            true,
+        ),
+        (
+            ok.clone(),
+            Some(h("unauthorized")),
+            "device_unauthorized",
+            "Allow USB debugging",
+            true,
+        ),
+        (
+            ok.clone(),
+            Some(h("offline")),
+            "device_offline",
+            "replug",
+            true,
+        ),
+        (
+            ok.clone(),
+            Some(json!({"ok":false,"problem":"asleep","hint":"wake"})),
+            "screen_off",
+            "wake",
+            false,
+        ),
+        (
+            ok.clone(),
+            Some(json!({"ok":false,"problem":"locked","hint":"unlock"})),
+            "device_locked",
+            "unlock",
+            false,
+        ),
+        (
+            json!({"ok":false,"error":"daemon_unreachable"}),
+            None,
+            "daemon_not_running",
+            "android-use connect",
+            true,
+        ),
+        (
+            json!({"ok":false,"drivable":false,"error":"runner_unreachable","message":"x","device":"R5CT1234"}),
+            Some(json!({"ok":true,"problem":null})),
+            "runner_not_running",
+            "android-use disconnect",
+            true,
+        ),
+        (
+            json!({"ok":false,"drivable":false,"error":"control_stopping"}),
+            None,
+            "daemon_stopping",
+            "connect",
+            true,
+        ),
+    ];
+    for (status, health, code, next, lost) in cases {
+        let v = device::classify(&status, health.as_ref());
+        assert_eq!(v["code"], code, "{v}");
+        assert!(v["next"].as_str().unwrap().contains(next), "{v}");
+        assert_eq!(v["lost"], lost, "{v}");
+    }
+    let outdated = android_use::mcp::outdated_daemon("/agent/flow/draft");
+    let v = device::classify(&outdated, None);
+    assert_eq!(v["code"], "daemon_outdated");
+    assert!(v["next"].as_str().unwrap().contains(" disconnect && "));
+    assert!(v["next"].as_str().unwrap().contains(" connect"));
+    assert_eq!(
+        device::classify(&ok, Some(&json!({"ok":true,"problem":null})))["ok"],
+        true
+    );
+}
+
+#[tokio::test]
+async fn preflight_names_daemon_and_runner_problems() {
+    for (status, code) in [
+        (
+            json!({"ok":false,"error":"daemon_unreachable","message":"Android daemon unavailable"}),
+            "daemon_not_running",
+        ),
+        (
+            json!({"ok":false,"drivable":false,"error":"runner_unreachable","message":"r","device":"R5CT1234","backend":"adb"}),
+            "runner_not_running",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = Mock::default();
+        mock.statuses.lock().unwrap().push(status);
+        let result = flow::run(&mock, "x", &sample(), opts(dir.path())).await;
+        assert_eq!(result["error"], code, "{result}");
+        assert!(
+            result["hint"].as_str().unwrap().contains("android-use"),
+            "{result}"
+        );
+        assert!(mock.batches.lock().unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn disconnect_on_the_first_step_is_still_not_replayable() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::default();
+    // The daemon died with the USB connection: the request never got an answer.
+    mock.replies.lock().unwrap().insert(
+        0,
+        json!({"ok":false,"error":"daemon_unreachable","message":"Android daemon unavailable","outcome":"not_sent","retry_safe":true,"applied_actions":0}),
+    );
+    mock.statuses.lock().unwrap().extend([
+        healthy_status(),
+        json!({"ok":false,"error":"daemon_unreachable"}),
+    ]);
+    let result = flow::run(&mock, "x", &sample(), opts(dir.path())).await;
+    assert_eq!(result["failed_step"], 1);
+    assert_eq!(result["device_error"], "daemon_not_running");
+    assert_eq!(
+        result["retry_safe"], false,
+        "a lost device is never auto-replayed"
+    );
+    assert_eq!(result["outcome"], "partial");
+    let hint = result["hint"].as_str().unwrap();
+    assert!(
+        hint.contains("--from 1") && hint.contains("android-use connect"),
+        "{hint}"
+    );
+    assert_eq!(*mock.elements.lock().unwrap(), 0);
+}
+
+#[tokio::test]
+async fn timeout_scale_also_stretches_pauses() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::default();
+    let d = doc(json!({"version":1,"name":"p","steps":[{"kind":"pause","ms":40}]}));
+    let started = std::time::Instant::now();
+    let options = RunOptions {
+        run_dir: Some(dir.path().into()),
+        timeout_scale: 3.0,
+        ..Default::default()
+    };
+    assert_eq!(flow::run(&mock, "p", &d, options).await["ok"], true);
+    assert!(started.elapsed() >= std::time::Duration::from_millis(120));
+}
+
+struct LeakyScreen(Mock);
+impl FlowDevice for LeakyScreen {
+    async fn actions(&self, batch: Value, record: bool) -> Value {
+        let n = self.0.batches.lock().unwrap().len();
+        let reply = self.0.actions(batch, record).await;
+        if n == 1 {
+            json!({"ok":false,"error":"ambiguous_element","message":"m","outcome":"not_sent","retry_safe":true,"applied_actions":0})
+        } else {
+            reply
+        }
+    }
+    async fn elements(&self) -> Value {
+        json!({"ok":true,"snapshot":"s","app":"com.dice.game","elements":[
+            {"index":0,"kind":"TextField","label":"Nickname","value":"secret-name","visible":true},
+            {"index":1,"kind":"StaticText","label":"Welcome secret-name!","visible":true},
+            {"index":2,"kind":"TextField","label":"PIN","value":"1234","password":true,"visible":true}]})
+    }
+    async fn status(&self) -> Value {
+        self.0.status().await
+    }
+    async fn screenshot(&self) -> Result<Vec<u8>, String> {
+        self.0.screenshot().await
+    }
+    async fn diagnose(&self, serial: &str) -> Value {
+        self.0.diagnose(serial).await
+    }
+}
+
+#[tokio::test]
+async fn failure_captures_redact_typed_inputs_and_field_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let device = LeakyScreen(Mock::default());
+    let d = doc(json!({"version":1,"name":"r","inputs":{"nick":{}},"steps":[
+        {"kind":"type","input":"nick","clear":true},{"kind":"tap","label":"Go"}]}));
+    let result = flow::run(&device, "r", &d, opts(dir.path())).await;
+    assert_eq!(result["failed_step"], 2, "{result}");
+    let saved = std::fs::read_to_string(dir.path().join("failure-elements.json")).unwrap();
+    assert!(
+        !saved.contains("secret-name") && !saved.contains("1234"),
+        "{saved}"
+    );
+    assert!(saved.contains("<input:nick>") && saved.contains("<redacted>"));
+    assert!(!result.to_string().contains("secret-name"));
+    let all = std::fs::read_dir(dir.path())
+        .unwrap()
+        .flatten()
+        .filter(|e| {
+            e.path()
+                .extension()
+                .is_some_and(|x| x == "json" || x == "jsonl")
+        })
+        .map(|e| std::fs::read_to_string(e.path()).unwrap())
+        .collect::<String>();
+    assert!(!all.contains("secret-name"));
+}
+
+#[tokio::test]
+async fn flow_batches_stay_out_of_the_draft_unless_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::default();
+    flow::run(&mock, "x", &sample(), opts(dir.path())).await;
+    assert!(mock.trail_flags.lock().unwrap().iter().all(|f| !f));
+    let mock = Mock::default();
+    let mut options = opts(dir.path());
+    options.record_trail = true;
+    flow::run(&mock, "x", &sample(), options).await;
+    assert!(mock.trail_flags.lock().unwrap().iter().all(|f| *f));
+}
+
+#[tokio::test]
+async fn daemon_skips_tagged_flow_batches_names_the_lease_holder_and_old_daemons_are_explained() {
+    let game = Game::default();
+    let (url, server) = serve(game.clone()).await;
+    let a = DaemonClient::new(url.clone(), "fixture-token".into(), "agent-a".into()).unwrap();
+    let d = doc(json!({"version":1,"name":"s","steps":[{"kind":"tap","label":"Play"}]}));
+    let dir = tempfile::tempdir().unwrap();
+    let options = RunOptions {
+        run_dir: Some(dir.path().into()),
+        preflight: false,
+        ..Default::default()
+    };
+    assert_eq!(flow::run(&a, "s", &d, options).await["ok"], true);
+    assert_eq!(
+        a.request("/agent/flow/draft", None).await["error"],
+        "empty_trail"
+    );
+    // Same owner, recorded on request.
+    *game.in_match.lock().unwrap() = false;
+    let options = RunOptions {
+        run_dir: Some(dir.path().into()),
+        preflight: false,
+        record_trail: true,
+        ..Default::default()
+    };
+    flow::run(&a, "s", &d, options).await;
+    assert_eq!(a.request("/agent/flow/draft", None).await["steps"], 1);
+    // Another owner hits the lease: the error says who holds it and how to free it.
+    let b = DaemonClient::new(url.clone(), "fixture-token".into(), "agent-b".into()).unwrap();
+    let busy = b.request("/agent/elements", None).await;
+    assert_eq!(busy["error"], "device_busy");
+    let message = busy["message"].as_str().unwrap();
+    assert!(
+        message.contains("'agent-a'") && message.contains("android-use --owner agent-a release"),
+        "{message}"
+    );
+    let busy = flow::run(
+        &b,
+        "s",
+        &d,
+        RunOptions {
+            run_dir: Some(dir.path().into()),
+            preflight: false,
+            ..Default::default()
+        },
+    )
+    .await;
+    assert!(
+        busy["message"].as_str().unwrap().contains("agent-a"),
+        "{busy}"
+    );
+    server.abort();
+
+    // A daemon without the flow routes (older version) answers 404.
+    let old = axum::Router::new().route(
+        "/agent/status",
+        axum::routing::get(|| async { axum::Json(json!({"ok":true})) }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let old_url = format!("http://{}", listener.local_addr().unwrap());
+    let old_server = tokio::spawn(async move { axum::serve(listener, old).await.unwrap() });
+    let client = DaemonClient::new(old_url, "fixture-token".into(), "agent-a".into()).unwrap();
+    let draft = flow::finish_draft(client.request("/agent/flow/draft", None).await, None);
+    assert_eq!(draft["error"], "daemon_outdated");
+    let message = draft["message"].as_str().unwrap();
+    assert!(
+        message.contains("older android-use version")
+            && message.contains("disconnect && ")
+            && message.contains(" connect"),
+        "{message}"
+    );
+    assert!(!message.contains("did not return JSON"));
+    old_server.abort();
 }

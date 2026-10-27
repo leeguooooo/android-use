@@ -33,10 +33,7 @@ impl<B: DeviceBackend> Session<B> {
     fn acquire(&mut self, owner: &str) -> Result<(), Failure> {
         if let Some((held, until)) = &self.owner {
             if held != owner && *until > Instant::now() {
-                return Err(Failure::not_sent(
-                    "device_busy",
-                    "Another caller holds the device; wait or ask that caller to release it",
-                ));
+                return Err(busy(held, *until));
             }
         }
         if self.owner.as_ref().is_none_or(|(held, _)| held != owner) {
@@ -111,6 +108,16 @@ impl<B> ApiState<B> {
         }
         Ok(owner.into())
     }
+}
+/// device_busy that names the lease holder and how to free the device.
+fn busy(held: &str, until: Instant) -> Failure {
+    let seconds = until.saturating_duration_since(Instant::now()).as_secs() + 1;
+    let mut failure = Failure::not_sent(
+        "device_busy",
+        &format!("Owner '{held}' holds the device lease for up to {seconds}s more (it renews on every call). Wait for it to finish, ask that session to release it (`android-use --owner {held} release`, or phone_release in its MCP session), or act as that owner with --owner {held}"),
+    );
+    failure.retry_safe = true;
+    failure
 }
 fn failure(error: Failure) -> axum::response::Response {
     let status = match error.error.as_str() {
@@ -226,6 +233,8 @@ async fn actions<B: DeviceBackend>(
         Err(e) => return failure(e),
     };
     let steps = body["steps"].as_array().cloned().unwrap_or_default();
+    // Saved-flow runs tag their batches; they are not part of a new recording.
+    let from_flow = headers.contains_key("x-flow-run");
     let batch = match serde_json::from_value::<Batch>(body) {
         Ok(b) => b,
         Err(_) => {
@@ -240,7 +249,9 @@ async fn actions<B: DeviceBackend>(
         return failure(e);
     }
     let result = session.control.execute(batch).await;
-    session.trail.note_batch(&steps, &result);
+    if !from_flow {
+        session.trail.note_batch(&steps, &result);
+    }
     Json(result).into_response()
 }
 async fn input<B: DeviceBackend>(
@@ -273,10 +284,8 @@ async fn release<B: DeviceBackend>(
         .as_ref()
         .is_some_and(|(held, _)| held != &owner)
     {
-        return failure(Failure::not_sent(
-            "device_busy",
-            "Only the owner can release this device",
-        ));
+        let (held, until) = session.owner.clone().expect("checked above");
+        return failure(busy(&held, until));
     }
     session.owner = None;
     session.control.clear_history();
@@ -298,10 +307,8 @@ async fn flow_draft<B: DeviceBackend>(
         .as_ref()
         .is_some_and(|(held, until)| held != &owner && *until > Instant::now())
     {
-        return failure(Failure::not_sent(
-            "device_busy",
-            "Another caller holds the device and its trail",
-        ));
+        let (held, until) = session.owner.clone().expect("checked above");
+        return failure(busy(&held, until));
     }
     if session.trail_owner.as_deref() != Some(owner.as_str()) {
         return Json(crate::trail::Trail::default().draft()).into_response();

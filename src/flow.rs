@@ -378,7 +378,8 @@ pub fn parse_inputs(pairs: &[String]) -> Result<BTreeMap<String, String>, String
 
 /// What the runner needs from the daemon. `DaemonClient` implements it; tests mock it.
 pub trait FlowDevice: Sync {
-    fn actions(&self, batch: Value) -> impl Future<Output = Value> + Send;
+    /// `record_trail:false` keeps the step out of the owner's draft recording.
+    fn actions(&self, batch: Value, record_trail: bool) -> impl Future<Output = Value> + Send;
     fn elements(&self) -> impl Future<Output = Value> + Send;
     fn status(&self) -> impl Future<Output = Value> + Send;
     fn screenshot(&self) -> impl Future<Output = Result<Vec<u8>, String>> + Send;
@@ -387,9 +388,14 @@ pub trait FlowDevice: Sync {
 }
 
 impl FlowDevice for crate::mcp::DaemonClient {
-    fn actions(&self, batch: Value) -> impl Future<Output = Value> + Send {
+    fn actions(&self, batch: Value, record_trail: bool) -> impl Future<Output = Value> + Send {
         let client = self.clone();
-        async move { client.request("/agent/actions", Some(batch)).await }
+        async move {
+            let header = (!record_trail).then_some(("X-Flow-Run", "1"));
+            client
+                .request_with("/agent/actions", Some(batch), header)
+                .await
+        }
     }
     fn elements(&self) -> impl Future<Output = Value> + Send {
         self.request("/agent/elements", None)
@@ -658,8 +664,11 @@ pub struct RunOptions {
     pub capture: CaptureOptions,
     /// Capture a screenshot after every step (heavy; for debugging).
     pub screenshot_each: bool,
-    /// Check the phone (USB state, awake, unlocked) before step 1.
+    /// Check the phone (USB state, awake, unlocked) before step 1 and after a
+    /// failed step. Off skips the host-side ADB checks.
     pub preflight: bool,
+    /// Also record this run's steps in the owner's draft trail.
+    pub record_trail: bool,
 }
 impl Default for RunOptions {
     fn default() -> Self {
@@ -675,6 +684,7 @@ impl Default for RunOptions {
             capture: CaptureOptions::default(),
             screenshot_each: false,
             preflight: true,
+            record_trail: false,
         }
     }
 }
@@ -723,7 +733,8 @@ async fn run_step<D: FlowDevice>(
     };
     match &step.op {
         Op::Pause(ms) => {
-            tokio::time::sleep(Duration::from_millis(*ms)).await;
+            let scaled = (*ms as f64 * options.timeout_scale.clamp(0.1, 20.0)) as u64;
+            tokio::time::sleep(Duration::from_millis(scaled)).await;
             done(0, None)
         }
         Op::Mark(_) => done(0, None),
@@ -757,7 +768,7 @@ async fn run_step<D: FlowDevice>(
                     .as_millis() as u64;
                 let slice = remaining.clamp(1, CORE_WAIT_MS);
                 let result = device
-                    .actions(json!({"steps":[{"type":"wait_for","expect":expect,"timeout_ms":slice}],"observe":false}))
+                    .actions(json!({"steps":[{"type":"wait_for","expect":expect,"timeout_ms":slice}],"observe":false}), options.record_trail)
                     .await;
                 if result["ok"] == true {
                     return done(0, None);
@@ -777,7 +788,7 @@ async fn run_step<D: FlowDevice>(
         Op::Device(action) => {
             let observe = step.settle_ms.is_some();
             let result = device
-                .actions(json!({"steps":[action],"observe":observe,"settle_ms":step.settle_ms.unwrap_or(0)}))
+                .actions(json!({"steps":[action],"observe":observe,"settle_ms":step.settle_ms.unwrap_or(0)}), options.record_trail)
                 .await;
             if result["ok"] == true {
                 let applied = result["applied_actions"].as_u64().unwrap_or(0);
@@ -852,30 +863,30 @@ pub async fn run<D: FlowDevice>(
             "device":status["device"],"foreground":status["app"],"drivable":status["drivable"],"dir":dir}),
     );
     // Host-side diagnosis needs an ADB serial; the accessibility backend has none.
+    // `preflight:false` turns off host-side ADB checks entirely.
     let serial = match (status["backend"].as_str(), status["device"].as_str()) {
+        _ if !options.preflight => None,
         (Some("accessibility"), _) | (_, None) => None,
         (_, Some(serial)) => Some(serial.to_string()),
     };
     if options.preflight {
         let health = match &serial {
-            Some(serial) => device.diagnose(serial).await,
-            None => json!({"ok":status["drivable"]==true}),
+            Some(serial) => {
+                let mut h = device.diagnose(serial).await;
+                h["serial"] = json!(serial);
+                Some(h)
+            }
+            None => None,
         };
-        events.emit("preflight", json!({"status":status,"device":health}));
-        if status["drivable"] != true || health["ok"] == false {
-            let problem = health["problem"]
-                .as_str()
-                .or(status["error"].as_str())
-                .unwrap_or("not_drivable");
-            let hint = health["hint"]
-                .as_str()
-                .or(status["message"].as_str())
-                .unwrap_or(
-                    "Run `android-use doctor`, then `android-use connect` once the phone is ready",
-                );
-            let mut result = json!({"ok":false,"error":format!("device_{}", problem.replace(' ', "_")),
-                "message":format!("preflight: device not ready ({problem}); nothing was sent"),
-                "hint":hint,"device":health,"status":status,"outcome":"not_sent","retry_safe":true,
+        let check = crate::device::classify(&status, health.as_ref());
+        events.emit(
+            "preflight",
+            json!({"status":status,"device":health,"check":check}),
+        );
+        if check["ok"] != true {
+            let mut result = json!({"ok":false,"error":check["code"],
+                "message":format!("preflight: {}; nothing was sent", check["message"].as_str().unwrap_or("device not ready")),
+                "hint":check["next"],"device":health,"status":status,"outcome":"not_sent","retry_safe":true,
                 "flow":flow_id,"run_id":run_id,"applied_actions":0});
             events.emit(
                 "flow_end",
@@ -891,6 +902,18 @@ pub async fn run<D: FlowDevice>(
             return result;
         }
     }
+    // Typed values to scrub from failure captures.
+    let secrets: Vec<(String, String)> = doc
+        .inputs
+        .iter()
+        .filter_map(|(name, def)| {
+            options
+                .inputs
+                .get(name)
+                .or(def.default.as_ref())
+                .map(|v| (name.clone(), v.clone()))
+        })
+        .collect();
     let mut capture = None;
     if options.capture.record || options.capture.logcat {
         let serial = status["device"].as_str().unwrap_or_default().to_string();
@@ -959,25 +982,23 @@ pub async fn run<D: FlowDevice>(
             json!({"step":number,"index":i,"kind":step.kind,"ok":false,"elapsed_ms":elapsed,
                 "error":f["error"],"message":f["message"],"outcome":f["outcome"],"retry_safe":f["retry_safe"]}),
         );
-        // Ask the host about the phone first: after a USB disconnect, reading
-        // the screen would only wait for timeouts.
-        let error = f["error"].as_str().unwrap_or("");
+        // Re-check the phone and the daemon before reading the screen: after a
+        // USB disconnect a read would only wait for timeouts.
+        let now_status = device.status().await;
         let health = match &serial {
-            Some(serial) if crate::device::device_suspect(error) => {
-                Some(device.diagnose(serial).await)
+            Some(serial) => {
+                let mut h = device.diagnose(serial).await;
+                h["serial"] = json!(serial);
+                Some(h)
             }
-            _ => None,
+            None => None,
         };
-        let lost = health.as_ref().is_some_and(|h| {
-            matches!(
-                h["problem"].as_str(),
-                Some("missing" | "offline" | "unauthorized" | "no permissions" | "adb_unavailable")
-            )
-        });
-        if let Some(h) = &health {
+        let check = crate::device::classify(&now_status, health.as_ref());
+        let lost = check["lost"] == true;
+        if check["ok"] != true {
             events.emit(
                 if lost { "device_lost" } else { "device_check" },
-                json!({"step":number,"device":h}),
+                json!({"step":number,"check":check,"device":health}),
             );
         }
         // Capture what the screen looked like when the step failed.
@@ -985,7 +1006,7 @@ pub async fn run<D: FlowDevice>(
         let elements = if lost {
             json!({})
         } else {
-            device.elements().await
+            crate::device::redact(device.elements().await, &secrets)
         };
         if let (Some(dir), false) = (&dir, lost) {
             let path = dir.join("failure-elements.json");
@@ -1024,18 +1045,21 @@ pub async fn run<D: FlowDevice>(
             .unwrap_or_default();
         let unknown = f["outcome"] == "unknown";
         let mutates = matches!(step.op, Op::Device(_));
-        let hint = if lost {
-            let h = health.as_ref().unwrap();
-            format!("The phone became {} during step {number}: {}. Then run `android-use connect` (the on-device runner does not survive a disconnect) and read the screen. {}",
-                h["problem"].as_str().unwrap_or("unavailable"), h["hint"].as_str().unwrap_or(""),
-                if mutates && (unknown || f["outcome"] != "not_sent") {
-                    format!("Step {number} may or may not have acted; never replay it blindly — resume with --from {number} or --from {} depending on what the screen shows.", number + 1)
-                } else {
-                    format!("Resume with --from {number} once the screen matches what step {number} expects.")
-                })
-        } else if let Some(problem) = health.as_ref().and_then(|h| h["problem"].as_str()) {
-            format!("The phone is {problem}: {}. Then read the screen and resume with --from {number} if it matches what step {number} expects.",
-                health.as_ref().unwrap()["hint"].as_str().unwrap_or(""))
+        let hint = if check["ok"] != true {
+            let mut next = check["next"].as_str().unwrap_or("").to_string();
+            if lost && !next.contains("connect") {
+                // The on-phone runner does not survive a disconnect.
+                next.push_str("; then run `android-use connect`");
+            }
+            let resume = if lost && mutates {
+                format!("Step {number} may or may not have acted; never replay it blindly. After reconnecting, read the screen and resume with --from {number} if step {number} did not take effect, otherwise --from {}.", number + 1)
+            } else {
+                format!("Then read the screen and resume with --from {number} if it matches what step {number} expects.")
+            };
+            format!(
+                "{} during step {number}. Next: {next}. {resume}",
+                check["message"].as_str().unwrap_or("Device problem")
+            )
         } else if unknown {
             format!("Step {number} may have acted (outcome unknown). Read the screen before anything else; resume with --from {} only after confirming the step took effect, never replay it blindly.", number + 1)
         } else if applied_total == 0 {
@@ -1046,13 +1070,15 @@ pub async fn run<D: FlowDevice>(
         failure = Some(json!({
             "ok":false,
             "error":f["error"],
-            "message":match health.as_ref().and_then(|h| h["problem"].as_str()) {
-                Some(problem) => format!("step {number}/{total} ({}) failed: device {problem} ({} — {})", step.desc, f["error"].as_str().unwrap_or("error"), f["message"].as_str().unwrap_or("")),
+            "message":match check["code"].as_str() {
+                Some(code) => format!("step {number}/{total} ({}) failed: {code} — {} ({}: {})", step.desc, check["message"].as_str().unwrap_or(""), f["error"].as_str().unwrap_or("error"), f["message"].as_str().unwrap_or("")),
                 None => format!("step {number}/{total} ({}) failed: {} — {}", step.desc, f["error"].as_str().unwrap_or("error"), f["message"].as_str().unwrap_or("")),
             },
+            "device_error":check["code"],
             "device":health,
-            "outcome":if applied_total>0 || unknown {"partial"} else {"not_sent"},
-            "retry_safe": applied_total==0 && f["retry_safe"]==true,
+            "outcome":if applied_total>0 || unknown || lost {"partial"} else {"not_sent"},
+            // A lost device makes the state uncertain: never replay automatically.
+            "retry_safe": !lost && applied_total==0 && f["retry_safe"]==true,
             "failed_step":number,
             "step_kind":step.kind,
             "step_note":step.note,

@@ -40,17 +40,33 @@ impl DaemonClient {
         })
     }
     pub async fn request(&self, path: &str, body: Option<Value>) -> Value {
+        self.request_with(path, body, None).await
+    }
+    pub async fn request_with(
+        &self,
+        path: &str,
+        body: Option<Value>,
+        header: Option<(&str, &str)>,
+    ) -> Value {
         let mutation = body.is_some() && path != "/agent/release";
-        let request = match body {
+        let mut request = match body {
             Some(ref value) => self.client.post(format!("{}{path}", self.url)).json(value),
             None => self.client.get(format!("{}{path}", self.url)),
         };
+        if let Some((name, value)) = header {
+            request = request.header(name, value);
+        }
         let result = request
             .bearer_auth(&self.token)
             .header("X-Phone-Owner", &self.owner)
             .send()
             .await;
         match result {
+            // Every route this client calls exists in the current daemon, so a
+            // 404 means an older daemon is still serving.
+            Ok(response) if response.status() == reqwest::StatusCode::NOT_FOUND => {
+                outdated_daemon(path)
+            }
             Ok(response) => match response.json::<Value>().await {
                 Ok(value) => value,
                 Err(_) => {
@@ -107,6 +123,28 @@ impl DaemonClient {
         }
         Ok(bytes.to_vec())
     }
+}
+/// The exact restart command, using this very binary.
+pub fn restart_command() -> String {
+    let exe = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "android-use".into());
+    let exe = if exe.contains(' ') {
+        format!("\"{exe}\"")
+    } else {
+        exe
+    };
+    format!("{exe} disconnect && {exe} connect")
+}
+pub fn outdated_daemon(path: &str) -> Value {
+    let command = restart_command();
+    let mut value = phone_control::Failure::not_sent(
+        "daemon_outdated",
+        &format!("The running daemon is an older android-use version without {path}; restart it with this binary: {command}"),
+    )
+    .json();
+    value["next"] = json!(command);
+    value
 }
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -172,6 +210,8 @@ pub struct FlowRunParams {
     pub logcat: Option<bool>,
     /// Check USB state, screen awake and unlocked before step 1 (default true).
     pub preflight: Option<bool>,
+    /// Also record this run's steps in the session's draft trail (default false).
+    pub record_trail: Option<bool>,
 }
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -387,6 +427,7 @@ impl AndroidHandler {
                 logcat: p.logcat.unwrap_or(false),
             },
             preflight: p.preflight.unwrap_or(true),
+            record_trail: p.record_trail.unwrap_or(false),
             ..Default::default()
         };
         let mut value = crate::flow::run(&self.client, &id, &doc, options).await;
