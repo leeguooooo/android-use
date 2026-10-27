@@ -22,6 +22,10 @@ struct Mock {
     replies: Mutex<BTreeMap<usize, Value>>,
     screenshots: Mutex<usize>,
     elements: Mutex<usize>,
+    /// Scripted diagnosis results, in call order; default healthy.
+    health: Mutex<Vec<Value>>,
+    diagnosed: Mutex<usize>,
+    backend: Option<&'static str>,
 }
 impl FlowDevice for Mock {
     async fn actions(&self, batch: Value) -> Value {
@@ -44,7 +48,17 @@ impl FlowDevice for Mock {
             {"index":1,"kind":"StaticText","label":"","visible":true}]})
     }
     async fn status(&self) -> Value {
-        json!({"ok":true,"device":"emulator-5554","app":"com.dice.game","drivable":true})
+        json!({"ok":true,"device":"R5CT1234","app":"com.dice.game","drivable":true,"backend":self.backend.unwrap_or("adb")})
+    }
+    async fn diagnose(&self, serial: &str) -> Value {
+        assert_eq!(serial, "R5CT1234");
+        *self.diagnosed.lock().unwrap() += 1;
+        let mut health = self.health.lock().unwrap();
+        if health.is_empty() {
+            json!({"ok":true,"problem":null,"state":"device","awake":true,"locked":false})
+        } else {
+            health.remove(0)
+        }
     }
     async fn screenshot(&self) -> Result<Vec<u8>, String> {
         *self.screenshots.lock().unwrap() += 1;
@@ -556,6 +570,8 @@ async fn flow_runs_through_the_daemon_and_the_trail_becomes_a_draft() {
         &d,
         RunOptions {
             run_dir: Some(dir.path().into()),
+            // The fixture serial is not a real adb device; skip the host-side check.
+            preflight: false,
             ..Default::default()
         },
     )
@@ -660,4 +676,243 @@ fn typed_text_becomes_an_input_without_its_value() {
     assert!(!draft.to_string().contains("hunter2"));
     let doc: FlowDoc = serde_json::from_value(draft["draft"].clone()).unwrap();
     assert!(flow::compile(&doc, &BTreeMap::new(), true).is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// Physical USB phone failure modes
+// ---------------------------------------------------------------------------
+
+use android_use::device;
+
+#[test]
+fn adb_device_list_keeps_every_state_with_a_hint() {
+    let rows = device::parse_devices(
+        "* daemon started successfully\nList of devices attached\n\
+R5CT1234               device usb:1-1 product:o1s model:SM_G991B device:o1s transport_id:3\n\
+9A1B2C                 unauthorized usb:1-2 transport_id:4\n\
+ZY22                   offline transport_id:5\n\
+0123ABC                no permissions (missing udev rules? user is in the plugdev group); see [http://developer.android.com/tools/device.html] usb:1-3\n\
+192.168.1.5:5555       device product:x model:Pixel_7 device:panther transport_id:6\n\
+emulator-5554          device product:sdk model:sdk transport_id:1\n",
+    );
+    assert_eq!(rows.len(), 6);
+    assert_eq!(rows[0]["state"], "device");
+    assert_eq!(rows[0]["transport"], "usb");
+    assert_eq!(rows[0]["model"], "SM_G991B");
+    assert_eq!(rows[1]["state"], "unauthorized");
+    assert!(rows[1]["hint"]
+        .as_str()
+        .unwrap()
+        .contains("Allow USB debugging"));
+    assert_eq!(rows[2]["state"], "offline");
+    assert_eq!(rows[3]["state"], "no permissions");
+    assert_eq!(rows[4]["transport"], "wifi");
+    assert_eq!(rows[5]["transport"], "emulator");
+    assert!(device::parse_devices("List of devices attached\n\n").is_empty());
+}
+
+#[test]
+fn power_and_keyguard_dumps_are_read_across_android_versions() {
+    assert_eq!(device::parse_awake("  mWakefulness=Asleep\n"), Some(false));
+    assert_eq!(device::parse_awake("mWakefulness=Dozing"), Some(false));
+    assert_eq!(device::parse_awake("mWakefulness=Awake"), Some(true));
+    assert_eq!(device::parse_awake("Display Power: state=OFF"), Some(false));
+    assert_eq!(device::parse_awake("nothing"), None);
+    assert_eq!(
+        device::parse_locked("    mShowingLockscreen=true mShowingDream=false"),
+        Some(true)
+    );
+    assert_eq!(
+        device::parse_locked("isStatusBarKeyguard=false mKeyguardShowing=false"),
+        Some(false)
+    );
+    assert_eq!(device::parse_locked("mDreamingLockscreen=true"), Some(true));
+    assert_eq!(
+        device::parse_locked("KeyguardServiceDelegate\n    showing=true"),
+        None
+    );
+    assert_eq!(
+        device::verdict("device", Some(false), Some(true))["problem"],
+        "asleep"
+    );
+    assert_eq!(
+        device::verdict("device", Some(true), Some(true))["problem"],
+        "locked"
+    );
+    assert_eq!(device::verdict("device", None, None)["ok"], true);
+    assert_eq!(
+        device::verdict("unauthorized", None, None)["problem"],
+        "unauthorized"
+    );
+}
+
+#[tokio::test]
+async fn preflight_refuses_an_unauthorized_or_locked_phone_before_any_step() {
+    for (health, error) in [
+        (
+            json!({"ok":false,"problem":"unauthorized","hint":"Accept the 'Allow USB debugging?' prompt"}),
+            "device_unauthorized",
+        ),
+        (
+            json!({"ok":false,"problem":"locked","hint":"unlock it"}),
+            "device_locked",
+        ),
+        (
+            json!({"ok":false,"problem":"asleep","hint":"wake it"}),
+            "device_asleep",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = Mock::default();
+        mock.health.lock().unwrap().push(health);
+        let result = flow::run(&mock, "x", &sample(), opts(dir.path())).await;
+        assert_eq!(result["error"], error, "{result}");
+        assert_eq!(result["retry_safe"], true);
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("nothing was sent"));
+        assert!(mock.batches.lock().unwrap().is_empty());
+        assert!(dir.path().join("result.json").exists());
+        assert!(events(dir.path()).iter().any(|e| e["event"] == "preflight"));
+    }
+    // --no-preflight skips the check.
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::default();
+    mock.health
+        .lock()
+        .unwrap()
+        .push(json!({"ok":false,"problem":"locked"}));
+    let mut options = opts(dir.path());
+    options.preflight = false;
+    assert_eq!(flow::run(&mock, "x", &sample(), options).await["ok"], true);
+}
+
+#[tokio::test]
+async fn usb_disconnect_mid_run_is_named_and_never_replayed() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::default();
+    // Preflight healthy, then the cable is pulled during the label tap (batch 2).
+    mock.health.lock().unwrap().extend([
+        json!({"ok":true,"problem":null}),
+        json!({"ok":false,"problem":"missing","state":"missing","hint":"The phone is not attached: check the cable"}),
+    ]);
+    mock.replies.lock().unwrap().insert(
+        2,
+        json!({"ok":false,"error":"adb_action_failed","message":"ADB command did not confirm completion; read the screen before continuing",
+            "outcome":"unknown","retry_safe":false,"completed":0,"applied_actions":0}),
+    );
+    let result = flow::run(&mock, "x", &sample(), opts(dir.path())).await;
+    assert_eq!(result["failed_step"], 4);
+    assert_eq!(result["retry_safe"], false);
+    assert_eq!(result["outcome"], "partial");
+    assert_eq!(result["device"]["problem"], "missing");
+    assert!(
+        result["message"]
+            .as_str()
+            .unwrap()
+            .contains("device missing"),
+        "{result}"
+    );
+    let hint = result["hint"].as_str().unwrap();
+    assert!(
+        hint.contains("android-use connect") && hint.contains("never replay"),
+        "{hint}"
+    );
+    // No screen reads against a phone that is gone.
+    assert_eq!(*mock.elements.lock().unwrap(), 0);
+    assert!(!dir.path().join("failure-elements.json").exists());
+    assert!(events(dir.path())
+        .iter()
+        .any(|e| e["event"] == "device_lost"));
+    assert_eq!(mock.batches.lock().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn a_wait_that_times_out_on_a_locked_phone_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::default();
+    mock.health.lock().unwrap().extend([
+        json!({"ok":true,"problem":null}),
+        json!({"ok":false,"problem":"locked","hint":"unlock it"}),
+    ]);
+    // Every slice of the wait times out (a locked phone never shows the app).
+    for n in 1..1000 {
+        mock.replies.lock().unwrap().insert(
+            n,
+            json!({"ok":false,"error":"condition_timeout","message":"x","outcome":"not_sent","retry_safe":true,"applied_actions":0}),
+        );
+    }
+    let mut d = sample();
+    d.steps[1] = json!({"kind":"wait_for","expect":{"app":"com.dice.game"},"timeout_ms":1});
+    let result = flow::run(&mock, "x", &d, opts(dir.path())).await;
+    assert_eq!(result["failed_step"], 2, "{result}");
+    assert!(result["message"]
+        .as_str()
+        .unwrap()
+        .contains("device locked"));
+    assert!(result["hint"]
+        .as_str()
+        .unwrap()
+        .starts_with("The phone is locked"));
+    // Not lost: the screen is still captured for debugging.
+    assert!(dir.path().join("failure-elements.json").exists());
+}
+
+#[tokio::test]
+async fn accessibility_backend_skips_adb_diagnosis() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock {
+        backend: Some("accessibility"),
+        ..Default::default()
+    };
+    assert_eq!(
+        flow::run(&mock, "x", &sample(), opts(dir.path())).await["ok"],
+        true
+    );
+    assert_eq!(*mock.diagnosed.lock().unwrap(), 0);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn diagnose_runs_read_only_adb_commands() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("calls");
+    let script = dir.path().join("adb");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\necho \"$@\" >> {}\ncase \"$*\" in\n\
+  'devices -l') printf 'List of devices attached\\nR5CT1234 device usb:1-1 model:SM_G991B\\nOFF1 unauthorized usb:1-2\\n' ;;\n\
+  *'dumpsys power') echo '  mWakefulness=Awake' ;;\n\
+  *'dumpsys window policy') echo '    mShowingLockscreen=true' ;;\n\
+  *) exit 1 ;;\nesac\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Only this test sets ANDROID_USE_ADB.
+    std::env::set_var("ANDROID_USE_ADB", &script);
+    let locked = device::diagnose("R5CT1234").await;
+    let unauthorized = device::diagnose("OFF1").await;
+    let missing = device::diagnose("GONE").await;
+    std::env::remove_var("ANDROID_USE_ADB");
+    assert_eq!(locked["problem"], "locked", "{locked}");
+    assert_eq!(locked["awake"], true);
+    assert_eq!(locked["model"], "SM_G991B");
+    assert_eq!(unauthorized["problem"], "unauthorized");
+    assert_eq!(missing["problem"], "missing");
+    let calls = std::fs::read_to_string(log).unwrap();
+    for line in calls.lines() {
+        assert!(
+            line == "devices -l" || line.contains("shell dumpsys"),
+            "non read-only call: {line}"
+        );
+    }
+    assert!(
+        !calls.contains("OFF1 shell"),
+        "never shells into an unauthorized device"
+    );
 }

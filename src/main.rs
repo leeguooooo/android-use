@@ -153,6 +153,9 @@ enum FlowCommand {
         /// Do not echo events to stderr.
         #[arg(long)]
         quiet: bool,
+        /// Skip the USB/awake/unlocked device check before step 1.
+        #[arg(long)]
+        no_preflight: bool,
     },
     /// Turn this owner's recorded steps into a flow draft.
     Draft {
@@ -226,7 +229,9 @@ fn connection(url: Option<String>) -> anyhow::Result<Connection> {
     }
 }
 async fn attached() -> anyhow::Result<Vec<Value>> {
-    let mut command = tokio::process::Command::new("adb");
+    let mut command = tokio::process::Command::new(
+        std::env::var_os("ANDROID_USE_ADB").unwrap_or_else(|| "adb".into()),
+    );
     if cfg!(target_os = "macos") && std::env::var_os("ADB_LIBUSB").is_none() {
         command.env("ADB_LIBUSB", "1");
     }
@@ -242,26 +247,29 @@ async fn attached() -> anyhow::Result<Vec<Value>> {
     if !output.status.success() {
         anyhow::bail!("ADB device discovery failed");
     }
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| {
-            let mut fields = line.split_whitespace();
-            let serial = fields.next()?;
-            let state = fields.next()?;
-            if serial == "List" || !matches!(state, "device" | "unauthorized" | "offline") {
-                return None;
-            }
-            Some(json!({"serial":serial,"state":state}))
-        })
-        .collect())
+    Ok(android_use::device::parse_devices(
+        &String::from_utf8_lossy(&output.stdout),
+    ))
 }
 async fn select_serial(serial: Option<String>) -> anyhow::Result<String> {
-    let devices = attached().await?;
-    let devices: Vec<_> = devices.iter().filter(|d| d["state"] == "device").collect();
+    let all = attached().await?;
+    let devices: Vec<_> = all.iter().filter(|d| d["state"] == "device").collect();
+    // Name the blocking state (unauthorized, offline, missing) instead of a generic refusal.
+    let blocked = |row: Option<&Value>| match row {
+        Some(row) => format!(
+            "{} is {}: {}",
+            row["serial"].as_str().unwrap_or(""),
+            row["state"].as_str().unwrap_or(""),
+            row["hint"].as_str().unwrap_or("")
+        ),
+        None => android_use::device::hint_for("missing").to_string(),
+    };
     match serial {
         Some(serial) if devices.iter().any(|d| d["serial"] == serial) => Ok(serial),
+        Some(serial) => anyhow::bail!(blocked(all.iter().find(|d| d["serial"] == serial))),
         None if devices.len() == 1 => Ok(devices[0]["serial"].as_str().unwrap().into()),
-        _ => anyhow::bail!("Select an attached authorized device using --serial; run doctor"),
+        None if devices.is_empty() => anyhow::bail!(blocked(all.first())),
+        None => anyhow::bail!("Several authorized devices are attached; pick one with --serial (see android-use doctor)"),
     }
 }
 async fn install_app(serial: &str, apk: &std::path::Path) -> anyhow::Result<()> {
@@ -485,6 +493,9 @@ impl flow::FlowDevice for NoDevice {
     async fn screenshot(&self) -> Result<Vec<u8>, String> {
         Err("no device".into())
     }
+    async fn diagnose(&self, _: &str) -> Value {
+        json!({"ok":false,"problem":"no_device"})
+    }
 }
 async fn plan(
     registry: &std::path::Path,
@@ -608,11 +619,21 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         Commands::Doctor => {
-            let devices = attached().await?;
-            println!(
-                "{}",
-                json!({"ok":true,"devices":devices,"hint":"Enable USB debugging and authorize this computer on the phone"})
-            );
+            let mut devices = attached().await?;
+            // Read-only: never wakes, taps or unlocks the phone.
+            for row in devices.iter_mut().filter(|r| r["state"] == "device") {
+                let serial = row["serial"].as_str().unwrap_or_default().to_string();
+                let health = android_use::device::diagnose(&serial).await;
+                for key in ["awake", "locked", "problem", "hint"] {
+                    row[key] = health[key].clone();
+                }
+            }
+            let hint = if devices.is_empty() {
+                android_use::device::hint_for("missing")
+            } else {
+                "Each device row says what to fix; act only on a device with state device and no problem"
+            };
+            println!("{}", json!({"ok":true,"devices":devices,"hint":hint}));
         }
         Commands::Connect {
             serial,
@@ -960,6 +981,7 @@ async fn main() -> anyhow::Result<()> {
                             logcat,
                             screenshot_each,
                             quiet,
+                            no_preflight,
                         },
                 } => {
                     let registry = flow::registry_dir()?;
@@ -977,6 +999,7 @@ async fn main() -> anyhow::Result<()> {
                         echo_events: !quiet,
                         capture: flow::CaptureOptions { record, logcat },
                         screenshot_each,
+                        preflight: !no_preflight,
                     };
                     print_result(flow::run(&client, &id, &doc, options).await)?;
                 }

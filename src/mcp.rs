@@ -170,6 +170,8 @@ pub struct FlowRunParams {
     pub record: Option<bool>,
     /// Capture adb logcat for the run.
     pub logcat: Option<bool>,
+    /// Check USB state, screen awake and unlocked before step 1 (default true).
+    pub preflight: Option<bool>,
 }
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -384,6 +386,7 @@ impl AndroidHandler {
                 record: p.record.unwrap_or(false),
                 logcat: p.logcat.unwrap_or(false),
             },
+            preflight: p.preflight.unwrap_or(true),
             ..Default::default()
         };
         let mut value = crate::flow::run(&self.client, &id, &doc, options).await;
