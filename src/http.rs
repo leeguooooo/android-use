@@ -130,6 +130,7 @@ fn failure(error: Failure) -> axum::response::Response {
 pub fn capabilities() -> Value {
     json!({"ok":true,"platform":"android","version":env!("CARGO_PKG_VERSION"),
         "actions":["tap","longpress","swipe","scroll","type","back","home","launch_app","wait_for"],
+        "action_schema":crate::tools::action_schema(),
         "elements":true,"non_bmp_tree_text":"preserved","screenshot":true,"batch":true,"delta":true,"snapshot_bound_tap":true,
         "input":{"coordinates":"normalized_0_to_1","text":"native_focused_field","append":true,"requires_clear_true":false,"insertion":"current_selection","max_characters":20000,"password_fields":"replace_only_redacted","webview_fields":"editable_accessibility_fields"},
         "max_batch_steps":32,"lease_seconds":30,"automatic_action_retry":false,
@@ -235,13 +236,14 @@ async fn actions<B: DeviceBackend>(
     let steps = body["steps"].as_array().cloned().unwrap_or_default();
     // Saved-flow runs tag their batches; they are not part of a new recording.
     let from_flow = headers.contains_key("x-flow-run");
-    let batch = match serde_json::from_value::<Batch>(body) {
+    let batch = match serde_json::from_value::<Batch>(body.clone()) {
         Ok(b) => b,
-        Err(_) => {
+        Err(error) => {
+            let problem = crate::tools::batch_problem(&body, &error.to_string());
             return failure(Failure::not_sent(
                 "invalid_batch",
-                "Malformed or unsupported batch; no action sent",
-            ))
+                &crate::tools::action_message(&problem),
+            ));
         }
     };
     let mut session = state.session.lock().await;
@@ -259,15 +261,13 @@ async fn input<B: DeviceBackend>(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> axum::response::Response {
-    let step = match serde_json::from_value::<Action>(body) {
-        Ok(s) => s,
-        Err(_) => {
-            return failure(Failure::not_sent(
-                "invalid_action",
-                "Malformed or unsupported action; no action sent",
-            ))
-        }
-    };
+    if let Some(problem) = crate::tools::action_problem(&body) {
+        return failure(Failure::not_sent(
+            "invalid_action",
+            &crate::tools::action_message(&problem),
+        ));
+    }
+    let step: Action = serde_json::from_value(body).expect("checked by action_problem");
     actions(State(state), headers, Json(json!({"steps":[step]}))).await
 }
 async fn release<B: DeviceBackend>(

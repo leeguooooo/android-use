@@ -5,4 +5,5 @@ pub mod flow;
 pub mod http;
 pub mod mcp;
 mod runner;
+pub mod tools;
 pub mod trail;

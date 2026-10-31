@@ -85,6 +85,7 @@ enum Commands {
         since: Option<String>,
     },
     /// Execute one action JSON or a batch JSON containing steps.
+    #[command(after_help = android_use::tools::ACT_HELP)]
     Act {
         json: String,
     },

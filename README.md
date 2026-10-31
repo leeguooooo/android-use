@@ -64,6 +64,8 @@ android-use disconnect
 
 `release` gives up the caller's lease; `disconnect` shuts down that connection and removes its runner and ADB forward. Reconnecting restarts an unhealthy connection after its owner releases it. MCP authorization stays valid when the same phone reconnects. Each phone has a process lock and each caller has an expiring lease. A different active owner cannot be displaced.
 
+`android-use act --help` lists every action and its fields, and `phone_capabilities` carries the same data as `action_schema`. A rejected action names the unknown type, the missing or unexpected field, or the batch step at fault.
+
 ## Flows
 
 A flow is a saved, validated list of steps replayed one step per batch, so each step gets its own outcome, timing and failure capture. Flows live in `~/.android-use/flows/<category>/<slug>.json` (override with `ANDROID_USE_FLOWS_DIR`); runs write to `~/.android-use/flow-runs/<flow>/<run-id>/`.
