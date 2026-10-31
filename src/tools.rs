@@ -162,3 +162,317 @@ pub fn resize_png(
         .map_err(|e| format!("Unable to encode screenshot: {e}"))?;
     Ok(out.into_inner())
 }
+
+/// Device tools that need USB debugging. They run on the computer through ADB,
+/// so they are unavailable to a phone driven only by the accessibility companion.
+#[derive(clap::Subcommand)]
+pub enum AdbCommand {
+    /// Open the recent apps screen (KEYCODE_APP_SWITCH).
+    Recents,
+    /// Stop a package with am force-stop.
+    ForceStop { package: String },
+    /// Force-stop a package, then start its launcher activity.
+    Restart { package: String },
+    /// Print recent log lines; read-only.
+    Logcat {
+        /// Keep only this tag; repeatable.
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        #[arg(long)]
+        pid: Option<u32>,
+        /// Start time: epoch seconds or "MM-DD hh:mm:ss.mmm".
+        #[arg(long)]
+        since: Option<String>,
+        /// Most recent lines to print when --since is absent.
+        #[arg(long, default_value_t = 500)]
+        lines: u32,
+    },
+    /// Copy a file or directory from the phone to the computer.
+    Pull {
+        remote: String,
+        /// Destination; defaults to the remote name in the current directory.
+        local: Option<String>,
+    },
+    /// Show version, install times, APK paths and run state of a package.
+    Package {
+        /// Defaults to the daemon's foreground app.
+        package: Option<String>,
+    },
+    /// List installed packages with version codes.
+    Apps {
+        /// Include system packages.
+        #[arg(long)]
+        all: bool,
+    },
+}
+impl AdbCommand {
+    /// Changes phone state, so it must hold the daemon lease first.
+    pub fn mutates(&self) -> bool {
+        matches!(
+            self,
+            Self::Recents | Self::ForceStop { .. } | Self::Restart { .. }
+        )
+    }
+}
+
+pub fn valid_package(name: &str) -> bool {
+    name.contains('.')
+        && name.len() <= 255
+        && !name.starts_with('.')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'_')
+}
+
+pub fn logcat_args(
+    tags: &[String],
+    pid: Option<u32>,
+    since: Option<&str>,
+    lines: u32,
+) -> Result<Vec<String>, String> {
+    let mut args = vec!["logcat".to_string(), "-d".into()];
+    if let Some(pid) = pid {
+        args.push(format!("--pid={pid}"));
+    }
+    match since {
+        Some(since) => {
+            let allowed = since
+                .bytes()
+                .all(|b| b.is_ascii_digit() || b" :.-".contains(&b));
+            if since.is_empty() || since.starts_with('-') || !allowed {
+                return Err("--since takes epoch seconds or \"MM-DD hh:mm:ss.mmm\"".into());
+            }
+            args.extend(["-T".into(), since.into()]);
+        }
+        None => args.extend(["-t".into(), lines.max(1).to_string()]),
+    }
+    if !tags.is_empty() {
+        args.push("-s".into());
+    }
+    for tag in tags {
+        let allowed = tag
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_.-$".contains(&b));
+        if tag.is_empty() || tag.starts_with('-') || !allowed {
+            return Err(format!("Invalid log tag: {tag}"));
+        }
+        args.push(tag.clone());
+    }
+    Ok(args)
+}
+
+/// Read one package's block of `dumpsys package NAME`.
+pub fn parse_package(name: &str, dumpsys: &str) -> Option<Value> {
+    let field = |key: &str| {
+        dumpsys.lines().find_map(|line| {
+            let line = line.trim();
+            let at = line.find(key)?;
+            let boundary = at == 0 || line.as_bytes()[at - 1] == b' ';
+            boundary.then(|| &line[at + key.len()..])
+        })
+    };
+    let first = |key: &str| field(key).and_then(|text| text.split_whitespace().next());
+    let whole = |key: &str| field(key).map(str::trim);
+    let version_code = first("versionCode=")?;
+    Some(
+        json!({"package":name,"label":null,"version_name":first("versionName="),
+        "version_code":version_code.parse::<u64>().ok(),
+        "first_install_time":whole("firstInstallTime="),
+        "last_update_time":whole("lastUpdateTime=")}),
+    )
+}
+
+/// Parse `pm list packages --show-versioncode`.
+pub fn parse_packages(text: &str) -> Vec<Value> {
+    text.lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let name = fields.next()?.strip_prefix("package:")?;
+            let version = fields.find_map(|f| f.strip_prefix("versionCode:"));
+            Some(json!({"package":name,"version_code":version.and_then(|v| v.parse::<u64>().ok())}))
+        })
+        .collect()
+}
+
+struct AdbOutput {
+    ok: bool,
+    stdout: String,
+    stderr: String,
+}
+async fn adb(serial: &str, args: &[&str], seconds: u64) -> Result<AdbOutput, Value> {
+    let program = std::env::var_os("ANDROID_USE_ADB").unwrap_or_else(|| "adb".into());
+    let mut command = tokio::process::Command::new(program);
+    if cfg!(target_os = "macos") && std::env::var_os("ADB_LIBUSB").is_none() {
+        command.env("ADB_LIBUSB", "1");
+    }
+    command
+        .args(["-s", serial])
+        .args(args)
+        .kill_on_drop(true)
+        .stdin(std::process::Stdio::null());
+    let waited =
+        tokio::time::timeout(std::time::Duration::from_secs(seconds), command.output()).await;
+    match waited {
+        Ok(Ok(output)) => Ok(AdbOutput {
+            ok: output.status.success(),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        }),
+        Ok(Err(_)) => Err(json!({"ok":false,"error":"adb_unavailable",
+            "message":"Unable to start adb; install Android platform tools"})),
+        Err(_) => Err(json!({"ok":false,"error":"adb_timeout",
+            "message":format!("adb did not finish within {seconds} seconds")})),
+    }
+}
+fn failed(error: &str, output: &AdbOutput) -> Value {
+    let detail = if output.stderr.is_empty() {
+        output.stdout.trim()
+    } else {
+        &output.stderr
+    };
+    json!({"ok":false,"error":error,"message":detail})
+}
+/// A state change may have landed even when it reports failure, so never retry.
+fn unconfirmed(output: &AdbOutput) -> Value {
+    let mut value = failed("adb_action_failed", output);
+    value["outcome"] = json!("unknown");
+    value["retry_safe"] = json!(false);
+    value
+}
+fn bad_package(package: &str) -> Value {
+    json!({"ok":false,"error":"invalid_package","message":format!("Invalid package name: {package}")})
+}
+async fn force_stop(serial: &str, package: &str) -> Result<AdbOutput, Value> {
+    adb(serial, &["shell", "am", "force-stop", package], 15).await
+}
+
+pub async fn run_adb(serial: &str, command: AdbCommand, foreground: Option<String>) -> Value {
+    match run_adb_inner(serial, command, foreground).await {
+        Ok(value) | Err(value) => value,
+    }
+}
+async fn run_adb_inner(
+    serial: &str,
+    command: AdbCommand,
+    foreground: Option<String>,
+) -> Result<Value, Value> {
+    Ok(match command {
+        AdbCommand::Recents => {
+            let args = ["shell", "input", "keyevent", "KEYCODE_APP_SWITCH"];
+            let output = adb(serial, &args, 15).await?;
+            if output.ok {
+                json!({"ok":true,"serial":serial})
+            } else {
+                unconfirmed(&output)
+            }
+        }
+        AdbCommand::ForceStop { package } => {
+            if !valid_package(&package) {
+                return Err(bad_package(&package));
+            }
+            let output = force_stop(serial, &package).await?;
+            if output.ok {
+                json!({"ok":true,"serial":serial,"package":package,"stopped":true})
+            } else {
+                unconfirmed(&output)
+            }
+        }
+        AdbCommand::Restart { package } => {
+            if !valid_package(&package) {
+                return Err(bad_package(&package));
+            }
+            let output = force_stop(serial, &package).await?;
+            if !output.ok {
+                return Err(unconfirmed(&output));
+            }
+            let start = [
+                "shell",
+                "monkey",
+                "-p",
+                &package,
+                "-c",
+                "android.intent.category.LAUNCHER",
+                "1",
+            ];
+            let output = adb(serial, &start, 15).await?;
+            // monkey can exit 0 without finding a launcher activity.
+            if output.ok && output.stdout.contains("Events injected: 1") {
+                json!({"ok":true,"serial":serial,"package":package,"restarted":true})
+            } else {
+                let mut value = unconfirmed(&output);
+                value["stopped"] = json!(true);
+                value
+            }
+        }
+        AdbCommand::Logcat {
+            tags,
+            pid,
+            since,
+            lines,
+        } => {
+            let args = logcat_args(&tags, pid, since.as_deref(), lines).map_err(
+                |message| json!({"ok":false,"error":"invalid_filter","message":message}),
+            )?;
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            let output = adb(serial, &args, 30).await?;
+            if output.ok {
+                json!({"ok":true,"serial":serial,"log":output.stdout})
+            } else {
+                failed("logcat_failed", &output)
+            }
+        }
+        AdbCommand::Pull { remote, local } => {
+            if !remote.starts_with('/') {
+                return Err(json!({"ok":false,"error":"invalid_path",
+                    "message":"The device path must be absolute"}));
+            }
+            let local = local.unwrap_or_else(|| {
+                let name = remote.trim_end_matches('/').rsplit('/').next();
+                name.filter(|n| !n.is_empty()).unwrap_or("pulled").into()
+            });
+            let output = adb(serial, &["pull", &remote, &local], 300).await?;
+            if output.ok {
+                json!({"ok":true,"serial":serial,"remote":remote,"local":local})
+            } else {
+                failed("pull_failed", &output)
+            }
+        }
+        AdbCommand::Package { package } => {
+            let Some(package) = package.or(foreground) else {
+                return Err(json!({"ok":false,"error":"package_required",
+                    "message":"Name a package; no daemon reported a foreground app"}));
+            };
+            if !valid_package(&package) {
+                return Err(bad_package(&package));
+            }
+            let dump = adb(serial, &["shell", "dumpsys", "package", &package], 15).await?;
+            let Some(mut info) = parse_package(&package, &dump.stdout) else {
+                return Err(json!({"ok":false,"error":"package_not_found",
+                    "message":format!("{package} is not installed")}));
+            };
+            let paths = adb(serial, &["shell", "pm", "path", &package], 15).await?;
+            info["apk_paths"] = json!(paths
+                .stdout
+                .lines()
+                .filter_map(|line| line.trim().strip_prefix("package:"))
+                .collect::<Vec<_>>());
+            let pid = adb(serial, &["shell", "pidof", &package], 15).await?;
+            info["running"] = json!(pid.ok && !pid.stdout.trim().is_empty());
+            info["ok"] = json!(true);
+            info["serial"] = json!(serial);
+            info
+        }
+        AdbCommand::Apps { all } => {
+            let mut args = vec!["shell", "pm", "list", "packages", "--show-versioncode"];
+            if !all {
+                args.push("-3");
+            }
+            let output = adb(serial, &args, 30).await?;
+            if output.ok {
+                json!({"ok":true,"serial":serial,"apps":parse_packages(&output.stdout)})
+            } else {
+                failed("package_list_failed", &output)
+            }
+        }
+    })
+}

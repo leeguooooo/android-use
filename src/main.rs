@@ -101,6 +101,13 @@ enum Commands {
     Release,
     /// MCP stdio server; stdout is reserved for protocol messages.
     Mcp,
+    /// Device tools over USB debugging: recents, force-stop, restart, logcat, pull, package, apps.
+    Adb {
+        #[arg(long)]
+        serial: Option<String>,
+        #[command(subcommand)]
+        command: android_use::tools::AdbCommand,
+    },
     /// Saved flows: draft, validate, run, list, info, update, report, publish.
     Flow {
         #[command(subcommand)]
@@ -873,6 +880,51 @@ async fn main() -> anyhow::Result<()> {
             }
             served?;
         }
+        Commands::Adb { serial, command } => {
+            let client = connection(cli.url)
+                .ok()
+                .and_then(|saved| DaemonClient::new(saved.url, saved.token, cli.owner).ok());
+            let status = match &client {
+                Some(client) => tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    client.request("/agent/status", None),
+                )
+                .await
+                .unwrap_or(json!({})),
+                None => json!({}),
+            };
+            let daemon_serial = status["device"].as_str().map(str::to_string);
+            let usable = attached().await.unwrap_or_default();
+            let serial = match (serial, daemon_serial) {
+                (Some(serial), _) => select_serial(Some(serial)).await,
+                (None, Some(device))
+                    if usable
+                        .iter()
+                        .any(|row| row["serial"] == device && row["state"] == "device") =>
+                {
+                    Ok(device)
+                }
+                _ => select_serial(None).await,
+            };
+            let serial = match serial {
+                Ok(serial) => serial,
+                Err(error) => {
+                    return print_result(
+                        json!({"ok":false,"error":"adb_required","message":format!("This command needs USB debugging, which the accessibility companion does not provide: {error}")}),
+                    )
+                }
+            };
+            if let (true, Some(client)) = (command.mutates(), &client) {
+                let lease = client.request("/agent/lease", Some(json!({}))).await;
+                // A dead daemon holds nothing; every other refusal stands.
+                let gone = lease["error"] == "daemon_unreachable" && lease["outcome"] == "not_sent";
+                if lease["ok"] != true && !gone {
+                    return print_result(lease);
+                }
+            }
+            let foreground = status["app"].as_str().map(str::to_string);
+            print_result(android_use::tools::run_adb(&serial, command, foreground).await)?;
+        }
         Commands::Flow { command } if !flow_needs_daemon(&command) => {
             let registry = flow::registry_dir()?;
             let runs = flow::runs_root().ok();
@@ -1035,6 +1087,7 @@ async fn main() -> anyhow::Result<()> {
                 | Commands::Setup
                 | Commands::Serve { .. }
                 | Commands::Doctor
+                | Commands::Adb { .. }
                 | Commands::Upgrade { .. }
                 | Commands::Connect { .. } => unreachable!(),
             }

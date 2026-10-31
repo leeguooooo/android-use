@@ -131,6 +131,7 @@ pub fn capabilities() -> Value {
     json!({"ok":true,"platform":"android","version":env!("CARGO_PKG_VERSION"),
         "actions":["tap","longpress","swipe","scroll","type","back","home","launch_app","wait_for"],
         "action_schema":crate::tools::action_schema(),
+        "adb_only_commands":["recents","force-stop","restart","logcat","pull","package","apps"],
         "elements":true,"non_bmp_tree_text":"preserved","screenshot":true,"batch":true,"delta":true,"snapshot_bound_tap":true,
         "input":{"coordinates":"normalized_0_to_1","text":"native_focused_field","append":true,"requires_clear_true":false,"insertion":"current_selection","max_characters":20000,"password_fields":"replace_only_redacted","webview_fields":"editable_accessibility_fields"},
         "max_batch_steps":32,"lease_seconds":30,"automatic_action_retry":false,
@@ -144,6 +145,7 @@ pub fn router<B: DeviceBackend + 'static>(state: ApiState<B>) -> Router {
         .route("/agent/screenshot", get(screenshot::<B>))
         .route("/agent/actions", post(actions::<B>))
         .route("/agent/input", post(input::<B>))
+        .route("/agent/lease", post(lease::<B>))
         .route("/agent/release", post(release::<B>))
         .route("/agent/disconnect", post(disconnect::<B>))
         .route("/agent/flow/draft", get(flow_draft::<B>))
@@ -270,6 +272,21 @@ async fn input<B: DeviceBackend>(
     }
     let step: Action = serde_json::from_value(body).expect("checked by action_problem");
     actions(State(state), headers, Json(json!({"steps":[step]}))).await
+}
+/// Hold the device for host-side ADB changes, which bypass the action path.
+async fn lease<B: DeviceBackend>(
+    State(state): State<ApiState<B>>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    let owner = match state.caller(&headers) {
+        Ok(o) => o,
+        Err(e) => return failure(e),
+    };
+    let mut session = state.session.lock().await;
+    if let Err(e) = session.acquire(&owner) {
+        return failure(e);
+    }
+    Json(json!({"ok":true,"owner":owner})).into_response()
 }
 async fn release<B: DeviceBackend>(
     State(state): State<ApiState<B>>,

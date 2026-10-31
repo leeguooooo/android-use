@@ -68,6 +68,22 @@ android-use disconnect
 
 When an app draws on a canvas (Unity, Flutter games), `elements` adds `canvas_rendered:true` and a `hint`. The check is a heuristic: at most one named element outside the status and navigation bars. `android-use screenshot out.png --max-width 720 --crop 0,0.5,1,0.5` returns a smaller PNG; there is no OCR.
 
+### ADB tools
+
+These run on the computer and need USB debugging. Without an attached ADB device, such as a phone driven only by the accessibility companion, they return `adb_required`. They were tested against a fake `adb`, not a real phone. `capabilities` lists them as `adb_only_commands`.
+
+```sh
+android-use adb recents
+android-use adb force-stop com.example.app
+android-use adb restart com.example.app
+android-use adb logcat --tag MyTag --pid 1234 --since 1793000000 --lines 200
+android-use adb pull /sdcard/Download/logs.zip ./logs.zip
+android-use adb package com.example.app   # omit the name for the foreground app
+android-use adb apps --all
+```
+
+`recents`, `force-stop` and `restart` first take the daemon lease, so they refuse while another caller owns the phone. `package` returns version, install times, APK paths and `running`; `label` stays null because ADB does not expose it.
+
 ## Flows
 
 A flow is a saved, validated list of steps replayed one step per batch, so each step gets its own outcome, timing and failure capture. Flows live in `~/.android-use/flows/<category>/<slug>.json` (override with `ANDROID_USE_FLOWS_DIR`); runs write to `~/.android-use/flow-runs/<flow>/<run-id>/`.

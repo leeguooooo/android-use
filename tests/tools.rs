@@ -149,3 +149,115 @@ fn screenshots_shrink_and_crop() {
     assert!(resize_png(&bytes, None, Some("0,0,1")).is_err());
     assert!(resize_png(&bytes, Some(0), None).is_err());
 }
+
+#[test]
+fn logcat_filters_become_safe_arguments() {
+    use android_use::tools::logcat_args;
+    let tags = vec!["MyTag".to_string()];
+    assert_eq!(
+        logcat_args(&tags, Some(7), Some("1793000000.5"), 10).unwrap(),
+        [
+            "logcat",
+            "-d",
+            "--pid=7",
+            "-T",
+            "1793000000.5",
+            "-s",
+            "MyTag"
+        ]
+    );
+    assert_eq!(
+        logcat_args(&[], None, None, 10).unwrap(),
+        ["logcat", "-d", "-t", "10"]
+    );
+    assert!(logcat_args(&["a;rm".to_string()], None, None, 1).is_err());
+    assert!(logcat_args(&[], None, Some("-f /sdcard/x"), 1).is_err());
+}
+#[test]
+fn package_dumps_are_parsed() {
+    use android_use::tools::{parse_package, parse_packages, valid_package};
+    let dump = "Packages:\n  Package [a.b] (1):\n    versionCode=42 minSdk=26 targetSdk=34\n    versionName=1.2.3\n    firstInstallTime=2026-01-02 03:04:05\n    lastUpdateTime=2026-02-03 04:05:06\n";
+    let info = parse_package("a.b", dump).unwrap();
+    assert_eq!(info["version_code"], 42);
+    assert_eq!(info["version_name"], "1.2.3");
+    assert_eq!(info["first_install_time"], "2026-01-02 03:04:05");
+    assert_eq!(info["last_update_time"], "2026-02-03 04:05:06");
+    assert!(info["label"].is_null());
+    assert!(parse_package("a.b", "Unable to find package: a.b\n").is_none());
+    let apps = parse_packages("package:a.b versionCode:7\npackage:c.d\njunk\n");
+    assert_eq!(apps.len(), 2);
+    assert_eq!(apps[0]["version_code"], 7);
+    assert!(apps[1]["version_code"].is_null());
+    assert!(valid_package("com.example_app.x"));
+    assert!(!valid_package("noDot"));
+    assert!(!valid_package("a.b;reboot"));
+}
+#[tokio::test]
+async fn lease_route_refuses_a_second_owner() {
+    let (url, task) = daemon().await;
+    assert_eq!(post(&url, "/agent/lease", "a", json!({})).await["ok"], true);
+    let other = post(&url, "/agent/lease", "b", json!({})).await;
+    assert_eq!(other["error"], "device_busy");
+    task.abort();
+}
+
+#[cfg(unix)]
+mod fake_adb {
+    use serde_json::{json, Value};
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
+
+    const SCRIPT: &str = r#"#!/bin/sh
+echo "$*" >> "$ADB_LOG"
+case "$*" in
+  "devices -l") printf 'List of devices attached\nS1 device usb:1 model:X\n' ;;
+  *"monkey"*) echo "Events injected: 1" ;;
+  *"dumpsys package a.b"*) printf 'versionCode=9 minSdk=1\nversionName=2.0\n' ;;
+  *"pm path a.b"*) echo "package:/data/app/a.b/base.apk" ;;
+  *"pidof a.b"*) echo 123 ;;
+  *"logcat"*) echo "line one" ;;
+esac
+"#;
+    async fn cli(home: &Path, args: &[&str]) -> (Value, String) {
+        let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_android-use"))
+            .args(args)
+            .env("HOME", home)
+            .env("ANDROID_USE_ADB", home.join("adb"))
+            .env("ADB_LOG", home.join("adb.log"))
+            .output()
+            .await
+            .unwrap();
+        let text = String::from_utf8_lossy(&output.stdout);
+        let log = std::fs::read_to_string(home.join("adb.log")).unwrap_or_default();
+        (serde_json::from_str(&text).unwrap_or(json!(null)), log)
+    }
+    #[tokio::test]
+    async fn commands_reach_adb_with_the_expected_arguments() {
+        let home = tempfile::tempdir().unwrap();
+        let adb = home.path().join("adb");
+        std::fs::write(&adb, SCRIPT).unwrap();
+        std::fs::set_permissions(&adb, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let (value, log) = cli(home.path(), &["adb", "recents"]).await;
+        assert_eq!(value["ok"], true);
+        assert!(log.contains("-s S1 shell input keyevent KEYCODE_APP_SWITCH"));
+        let (value, log) = cli(home.path(), &["adb", "restart", "a.b"]).await;
+        assert_eq!(value["restarted"], true);
+        let stop = log.find("am force-stop a.b").unwrap();
+        assert!(stop < log.find("monkey -p a.b").unwrap());
+        let (value, _) = cli(home.path(), &["adb", "package", "a.b"]).await;
+        assert_eq!(value["version_name"], "2.0");
+        assert_eq!(value["running"], true);
+        assert_eq!(value["apk_paths"][0], "/data/app/a.b/base.apk");
+        let (value, _) = cli(home.path(), &["adb", "logcat", "--tag", "T"]).await;
+        assert_eq!(value["log"], "line one\n");
+        let (value, log) = cli(home.path(), &["adb", "force-stop", "a.b;reboot"]).await;
+        assert_eq!(value["error"], "invalid_package");
+        assert!(!log.contains("reboot"));
+    }
+    #[tokio::test]
+    async fn no_adb_device_explains_the_requirement() {
+        let home = tempfile::tempdir().unwrap();
+        let (value, _) = cli(home.path(), &["adb", "recents"]).await;
+        assert_eq!(value["error"], "adb_required");
+    }
+}
