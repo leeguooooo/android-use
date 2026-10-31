@@ -27,6 +27,7 @@ roxmltree = "0.20"
 fs2 = "0.4"
 getrandom = "0.3"
 anyhow = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

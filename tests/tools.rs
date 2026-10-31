@@ -94,3 +94,58 @@ async fn http_rejections_carry_the_detail() {
     );
     task.abort();
 }
+
+fn screen(rows: Value) -> Value {
+    json!({"app":"com.game","screen":{"height":2000.0},"elements":rows})
+}
+#[test]
+fn canvas_hint_ignores_system_bars_and_real_trees() {
+    use android_use::tools::annotate_sparse_tree as annotate;
+    let bar = json!({"label":"Battery","rect":[0.0,0.0,100.0,60.0]});
+    let nav = json!({"label":"Back","rect":[0.0,1900.0,100.0,100.0]});
+    let body = json!({"label":"Save","identifier":"","rect":[0.0,900.0,100.0,100.0]});
+    let unnamed = json!({"label":"","rect":[0.0,900.0,100.0,100.0]});
+    let mut canvas = screen(json!([bar, nav, unnamed]));
+    annotate(&mut canvas);
+    assert_eq!(canvas["canvas_rendered"], true);
+    assert!(canvas["hint"].as_str().unwrap().contains("--max-width"));
+    let mut tree = screen(json!([body, body]));
+    annotate(&mut tree);
+    assert!(tree.get("canvas_rendered").is_none());
+    let mut delta = screen(json!([]));
+    delta["delta"] = json!({});
+    annotate(&mut delta);
+    assert!(delta.get("canvas_rendered").is_none());
+    let mut launcher = screen(json!([]));
+    launcher["app"] = json!("com.sec.android.app.launcher");
+    annotate(&mut launcher);
+    assert!(launcher.get("canvas_rendered").is_none());
+}
+#[test]
+fn screenshots_shrink_and_crop() {
+    use android_use::tools::resize_png;
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image::RgbImage::new(1000, 2000)
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    let bytes = bytes.into_inner();
+    let size = |png: Vec<u8>| {
+        let image = image::load_from_memory(&png).unwrap();
+        (image.width(), image.height())
+    };
+    assert_eq!(
+        size(resize_png(&bytes, Some(500), None).unwrap()),
+        (500, 1000)
+    );
+    assert_eq!(
+        size(resize_png(&bytes, None, Some("0,0.5,1,0.5")).unwrap()),
+        (1000, 1000)
+    );
+    assert_eq!(
+        size(resize_png(&bytes, Some(2000), None).unwrap()),
+        (1000, 2000)
+    );
+    assert!(resize_png(&bytes, None, Some("0,0,2,1")).is_err());
+    assert!(resize_png(&bytes, None, Some("0,0,1")).is_err());
+    assert!(resize_png(&bytes, Some(0), None).is_err());
+}

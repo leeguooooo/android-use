@@ -196,8 +196,9 @@ async fn elements<B: DeviceBackend>(
         return failure(e);
     }
     match session.control.elements(query.since.as_deref()).await {
-        Ok(v) => {
+        Ok(mut v) => {
             session.trail.note_screen(&v);
+            crate::tools::annotate_sparse_tree(&mut v);
             Json(v).into_response()
         }
         Err(e) => failure(e),

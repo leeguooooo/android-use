@@ -91,6 +91,12 @@ enum Commands {
     },
     Screenshot {
         output: PathBuf,
+        /// Shrink to at most this many pixels wide, keeping the aspect ratio.
+        #[arg(long)]
+        max_width: Option<u32>,
+        /// Keep only this normalized region: x,y,w,h, for example 0,0.5,1,0.5.
+        #[arg(long)]
+        crop: Option<String>,
     },
     Release,
     /// MCP stdio server; stdout is reserved for protocol messages.
@@ -952,8 +958,16 @@ async fn main() -> anyhow::Result<()> {
                     };
                     print_result(client.request(path, Some(value)).await)?;
                 }
-                Commands::Screenshot { output } => {
-                    let bytes = client.screenshot().await.map_err(|e| anyhow::anyhow!(e))?;
+                Commands::Screenshot {
+                    output,
+                    max_width,
+                    crop,
+                } => {
+                    let mut bytes = client.screenshot().await.map_err(|e| anyhow::anyhow!(e))?;
+                    if max_width.is_some() || crop.is_some() {
+                        bytes = android_use::tools::resize_png(&bytes, max_width, crop.as_deref())
+                            .map_err(|e| anyhow::anyhow!(e))?;
+                    }
                     tokio::fs::write(&output, bytes).await?;
                     println!("{}", json!({"ok":true,"path":output}));
                 }

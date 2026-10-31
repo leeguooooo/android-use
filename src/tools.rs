@@ -85,3 +85,80 @@ pub fn batch_problem(body: &Value, error: &str) -> String {
     }
     error.to_string()
 }
+
+/// Mark a full element read whose app area holds almost nothing, which is what
+/// GL canvases (Unity, Flutter games) look like. Deltas are sparse by design.
+pub fn annotate_sparse_tree(screen: &mut Value) {
+    let app = screen["app"].as_str().unwrap_or_default();
+    let height = screen["screen"]["height"].as_f64().unwrap_or(0.0);
+    if screen.get("delta").is_some()
+        || app.is_empty()
+        || height <= 0.0
+        || app.contains("launcher")
+        || app == "com.android.systemui"
+    {
+        return;
+    }
+    let Some(rows) = screen["elements"].as_array() else {
+        return;
+    };
+    let content = rows
+        .iter()
+        .filter(|row| {
+            let named = ["label", "identifier"]
+                .iter()
+                .any(|key| row[key].as_str().is_some_and(|text| !text.is_empty()));
+            let top = row["rect"][1].as_f64().unwrap_or(0.0);
+            let middle = (top + row["rect"][3].as_f64().unwrap_or(0.0) / 2.0) / height;
+            // The outer bands hold the status and navigation bars.
+            named && (0.06..=0.92).contains(&middle)
+        })
+        .count();
+    if content <= 1 {
+        screen["canvas_rendered"] = json!(true);
+        screen["hint"] = json!("This app exposes almost no accessible nodes and probably draws on a canvas. Use android-use screenshot --max-width 720, or add --crop, and tap normalized coordinates");
+    }
+}
+
+/// Crop (normalized `x,y,w,h`) and shrink a PNG so a screenshot costs less to read.
+pub fn resize_png(
+    bytes: &[u8],
+    max_width: Option<u32>,
+    crop: Option<&str>,
+) -> Result<Vec<u8>, String> {
+    let mut image = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
+        .map_err(|e| format!("Invalid screenshot: {e}"))?;
+    if let Some(crop) = crop {
+        let parts: Vec<f64> = crop
+            .split(',')
+            .map(|part| part.trim().parse::<f64>())
+            .collect::<Result<_, _>>()
+            .map_err(|_| "--crop takes four numbers: x,y,w,h".to_string())?;
+        let [x, y, w, h] = parts[..] else {
+            return Err("--crop takes four numbers: x,y,w,h".into());
+        };
+        if x < 0.0 || y < 0.0 || w <= 0.0 || h <= 0.0 || x + w > 1.0 || y + h > 1.0 {
+            return Err("--crop must stay inside the normalized 0 to 1 screen".into());
+        }
+        let (width, height) = (f64::from(image.width()), f64::from(image.height()));
+        image = image.crop_imm(
+            (x * width) as u32,
+            (y * height) as u32,
+            ((w * width) as u32).max(1),
+            ((h * height) as u32).max(1),
+        );
+    }
+    if let Some(limit) = max_width {
+        if limit == 0 {
+            return Err("--max-width must be positive".into());
+        }
+        if image.width() > limit {
+            image = image.resize(limit, u32::MAX, image::imageops::FilterType::Triangle);
+        }
+    }
+    let mut out = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut out, image::ImageFormat::Png)
+        .map_err(|e| format!("Unable to encode screenshot: {e}"))?;
+    Ok(out.into_inner())
+}

@@ -66,6 +66,8 @@ android-use disconnect
 
 `android-use act --help` lists every action and its fields, and `phone_capabilities` carries the same data as `action_schema`. A rejected action names the unknown type, the missing or unexpected field, or the batch step at fault.
 
+When an app draws on a canvas (Unity, Flutter games), `elements` adds `canvas_rendered:true` and a `hint`. The check is a heuristic: at most one named element outside the status and navigation bars. `android-use screenshot out.png --max-width 720 --crop 0,0.5,1,0.5` returns a smaller PNG; there is no OCR.
+
 ## Flows
 
 A flow is a saved, validated list of steps replayed one step per batch, so each step gets its own outcome, timing and failure capture. Flows live in `~/.android-use/flows/<category>/<slug>.json` (override with `ANDROID_USE_FLOWS_DIR`); runs write to `~/.android-use/flow-runs/<flow>/<run-id>/`.
