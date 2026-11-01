@@ -40,10 +40,10 @@ jobs:
           - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             name: linux-x86_64
-          - runner: macos-14
+          - runner: macos-26-intel
             target: x86_64-apple-darwin
             name: darwin-x86_64
-          - runner: macos-14
+          - runner: macos-26
             target: aarch64-apple-darwin
             name: darwin-arm64
           - runner: windows-latest
@@ -156,4 +156,48 @@ jobs:
         run: |
           version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
           test "$TAG" = "v$version"
-          gh release create "$TAG" dist/* --verify-tag --draft --title "android-use $version" --notes-file RELEASE-NOTES.md
+          gh release create "$TAG" dist/* --verify-tag --draft --title "android-use $version" --generate-notes
+          gh release edit "$TAG" --draft=false --latest
+
+  prepare-release:
+    needs: [build, verify-adapter, phone]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    concurrency:
+      group: prepare-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: bump version and tag releasable commits
+        id: prepare
+        env:
+          TESTED_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags
+          if [ "$(git rev-parse origin/main)" != "$TESTED_SHA" ]; then
+            echo "Newer main commit exists; its CI will prepare the release"
+            exit 0
+          fi
+          tag="$(python3 scripts/prepare-release.py)"
+          if [ -z "$tag" ]; then
+            echo "No releasable commits since the last tag"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -u
+          git commit -m "chore(release): $tag"
+          git tag "$tag"
+          git push --atomic origin HEAD:refs/heads/main "refs/tags/$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          # A tag pushed with GITHUB_TOKEN starts nothing; dispatch on the tag so
+          # every refs/tags/v condition above, including APK signing, applies.
+          gh workflow run release.yml --ref "$tag"
