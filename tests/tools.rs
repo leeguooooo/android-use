@@ -176,13 +176,18 @@ fn logcat_filters_become_safe_arguments() {
 #[test]
 fn package_dumps_are_parsed() {
     use android_use::tools::{parse_package, parse_packages, valid_package};
-    let dump = "Packages:\n  Package [a.b] (1):\n    versionCode=42 minSdk=26 targetSdk=34\n    versionName=1.2.3\n    firstInstallTime=2026-01-02 03:04:05\n    lastUpdateTime=2026-02-03 04:05:06\n";
+    let dump = "Packages:\n  Package [a.b] (1):\n    versionCode=42 minSdk=26 targetSdk=34\n    versionName=1.2.3\n    firstInstallTime=2026-01-02 03:04:05\n    lastUpdateTime=2026-02-03 04:05:06\n    installerPackageName=com.android.vending\n    signatures=PackageSignatures{7d1 version:2, signatures:[e1f2a3b4], past signatures:[]}\n";
     let info = parse_package("a.b", dump).unwrap();
     assert_eq!(info["version_code"], 42);
     assert_eq!(info["version_name"], "1.2.3");
     assert_eq!(info["first_install_time"], "2026-01-02 03:04:05");
     assert_eq!(info["last_update_time"], "2026-02-03 04:05:06");
     assert!(info["label"].is_null());
+    assert_eq!(info["installer"], "com.android.vending");
+    assert_eq!(info["signatures"], json!(["e1f2a3b4"]));
+    let bare = parse_package("a.b", "versionCode=1\n    installerPackageName=null\n").unwrap();
+    assert!(bare["installer"].is_null());
+    assert_eq!(bare["signatures"], json!([]));
     assert!(parse_package("a.b", "Unable to find package: a.b\n").is_none());
     let apps = parse_packages("package:a.b versionCode:7\npackage:c.d\njunk\n");
     assert_eq!(apps.len(), 2);

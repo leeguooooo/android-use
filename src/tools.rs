@@ -274,11 +274,20 @@ pub fn parse_package(name: &str, dumpsys: &str) -> Option<Value> {
     let first = |key: &str| field(key).and_then(|text| text.split_whitespace().next());
     let whole = |key: &str| field(key).map(str::trim);
     let version_code = first("versionCode=")?;
+    // `signatures=PackageSignatures{7d1 version:2, signatures:[e1f2a3b4], ...}`:
+    // Android's short certificate hashes, enough to tell two builds' signers apart.
+    let signatures: Vec<&str> = field("signatures=")
+        .and_then(|text| text.split("signatures:[").nth(1))
+        .and_then(|text| text.split(']').next())
+        .map(|list| list.split(',').map(str::trim).filter(|s| !s.is_empty()).collect())
+        .unwrap_or_default();
+    let installer = first("installerPackageName=").filter(|v| *v != "null");
     Some(
         json!({"package":name,"label":null,"version_name":first("versionName="),
         "version_code":version_code.parse::<u64>().ok(),
         "first_install_time":whole("firstInstallTime="),
-        "last_update_time":whole("lastUpdateTime=")}),
+        "last_update_time":whole("lastUpdateTime="),
+        "installer":installer,"signatures":signatures}),
     )
 }
 
