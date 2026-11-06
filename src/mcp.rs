@@ -294,6 +294,11 @@ fn result(value: Value) -> CallToolResult {
     result.structured_content = Some(value);
     result
 }
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct PackageParams {
+    /// Android package name, e.g. com.example.app.
+    pub package: String,
+}
 #[derive(Clone)]
 pub struct AndroidHandler {
     client: DaemonClient,
@@ -504,6 +509,42 @@ impl AndroidHandler {
             )),
             Err(e) => result(e),
         }
+    }
+    #[tool(
+        description = "Open the Android recent apps screen (app switcher). Works on the ADB backend (KEYCODE_APP_SWITCH) and the accessibility backend (GLOBAL_ACTION_RECENTS). Never replay an unknown outcome."
+    )]
+    async fn phone_recents(&self) -> CallToolResult {
+        result(
+            self.client
+                .request("/agent/device", Some(json!({"command":"recents"})))
+                .await,
+        )
+    }
+    #[tool(
+        description = "Force-stop an Android app by package name (am force-stop). Requires the ADB backend; the accessibility backend returns adb_required without sending anything."
+    )]
+    async fn phone_force_stop(&self, Parameters(p): Parameters<PackageParams>) -> CallToolResult {
+        result(
+            self.client
+                .request(
+                    "/agent/device",
+                    Some(json!({"command":"force_stop","package":p.package})),
+                )
+                .await,
+        )
+    }
+    #[tool(
+        description = "Force-stop an Android app, then start its launcher activity again, to test kill-and-recover. Requires the ADB backend; the accessibility backend returns adb_required without sending anything."
+    )]
+    async fn phone_restart_app(&self, Parameters(p): Parameters<PackageParams>) -> CallToolResult {
+        result(
+            self.client
+                .request(
+                    "/agent/device",
+                    Some(json!({"command":"restart_app","package":p.package})),
+                )
+                .await,
+        )
     }
     #[tool(
         description = "Release this MCP session's Android device lease so another agent or CLI caller can control it."

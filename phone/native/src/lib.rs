@@ -63,7 +63,7 @@ pub fn validate_call(call: &Value) -> Result<(), &'static str> {
     let p = call["params"].as_array().ok_or("invalid_parameters")?;
     let number = |v: &Value| v.as_i64().is_some_and(|n| (0..=100000).contains(&n));
     let valid = match call["method"].as_str() {
-        Some("screen" | "screenshot") => p.is_empty(),
+        Some("screen" | "screenshot" | "recents") => p.is_empty(),
         Some("typeText") => {
             p.len() == 2
                 && p[0].as_str().is_some_and(|s| s.chars().count() <= 20000)

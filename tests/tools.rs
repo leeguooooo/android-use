@@ -261,3 +261,23 @@ esac
         assert_eq!(value["error"], "adb_required");
     }
 }
+
+#[test]
+fn device_commands_parse_and_validate_packages() {
+    use android_use::tools::{device_command, AdbCommand};
+    assert!(matches!(
+        device_command(&json!({"command":"recents"})),
+        Ok(AdbCommand::Recents)
+    ));
+    assert!(matches!(
+        device_command(&json!({"command":"force_stop","package":"com.a"})),
+        Ok(AdbCommand::ForceStop { package }) if package == "com.a"
+    ));
+    assert!(matches!(
+        device_command(&json!({"command":"restart_app","package":"com.a"})),
+        Ok(AdbCommand::Restart { .. })
+    ));
+    assert!(device_command(&json!({"command":"force_stop"})).is_err());
+    assert!(device_command(&json!({"command":"force_stop","package":"a;b"})).is_err());
+    assert!(device_command(&json!({"command":"kill"})).is_err());
+}
