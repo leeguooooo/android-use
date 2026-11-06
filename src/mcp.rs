@@ -110,9 +110,13 @@ impl DaemonClient {
             .header("X-Phone-Owner", &self.owner)
             .send()
             .await
-            .map_err(|_| "Screenshot request failed")?;
+            .map_err(|_| {
+                "Screenshot request failed: Android daemon unavailable; start android-use serve"
+            })?;
         if !response.status().is_success() {
-            return Err("Screenshot unavailable or device owned by another caller".into());
+            let status = response.status().as_u16();
+            let body = response.json::<Value>().await.unwrap_or(Value::Null);
+            return Err(screenshot_failure_message(status, &body));
         }
         let bytes = response
             .bytes()
@@ -122,6 +126,48 @@ impl DaemonClient {
             return Err("Invalid screenshot".into());
         }
         Ok(bytes.to_vec())
+    }
+}
+/// Explain a failed screenshot without conflating a lost runner/device with
+/// another caller holding the device lease.
+pub fn screenshot_failure_message(status: u16, body: &Value) -> String {
+    let code = body["error"].as_str().unwrap_or("");
+    let detail = body["message"].as_str().unwrap_or("");
+    match code {
+        "device_busy" => format!("Screenshot refused: device owned by another caller (device_busy). {detail}"),
+        "runner_unreachable" | "runner_unauthorized" | "rpc_transport_failed" | "no_device"
+        | "device_disconnected" | "adb_failed" => format!(
+            "Screenshot failed: device runner unreachable or device disconnected ({code}). {detail}. \
+Next: run `android-use status` and `android-use doctor`; if the device is missing, reattach it and run `android-use connect`"
+        ),
+        "" => format!("Screenshot failed (HTTP {status}); run `android-use status` to diagnose"),
+        _ => format!("Screenshot failed ({code}). {detail}. Run `android-use status` to diagnose"),
+    }
+}
+#[cfg(test)]
+mod screenshot_failure_tests {
+    use super::*;
+    #[test]
+    fn busy_is_owner_conflict() {
+        let m = screenshot_failure_message(
+            409,
+            &json!({"error":"device_busy","message":"Owner 'x' holds"}),
+        );
+        assert!(m.contains("another caller") && m.contains("device_busy"));
+    }
+    #[test]
+    fn runner_unreachable_is_not_owner_conflict() {
+        let m = screenshot_failure_message(
+            400,
+            &json!({"error":"runner_unreachable","message":"No request reached the UIAutomator service"}),
+        );
+        assert!(!m.contains("another caller"));
+        assert!(m.contains("runner_unreachable") && m.contains("android-use connect"));
+    }
+    #[test]
+    fn unknown_body_names_status() {
+        let m = screenshot_failure_message(500, &Value::Null);
+        assert!(m.contains("HTTP 500") && !m.contains("another caller"));
     }
 }
 /// The exact restart command, using this very binary.
