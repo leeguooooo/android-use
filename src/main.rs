@@ -542,6 +542,61 @@ fn print_result(value: Value) -> anyhow::Result<()> {
     }
     Ok(())
 }
+/// ADB-only commands (`android-use adb ...`); the accessibility companion cannot run them.
+const ADB_ONLY_FEATURES: &[&str] = &[
+    "recents",
+    "force-stop",
+    "restart",
+    "logcat",
+    "pull",
+    "package",
+    "apps",
+];
+/// Builds the doctor output from ADB discovery and the live daemon status.
+fn doctor_report(devices: Vec<Value>, adb_error: Option<String>, daemon: Option<Value>) -> Value {
+    let live = daemon
+        .as_ref()
+        .filter(|status| status["ok"] != false && status["error"].is_null());
+    let mut report = json!({"ok":true,"devices":devices});
+    if let Some(error) = &adb_error {
+        report["adb_error"] = json!(error);
+    }
+    let adb_serving = |device: &Value| {
+        devices
+            .iter()
+            .any(|row| &row["serial"] == device && row["state"] == "device")
+    };
+    if let Some(status) = live {
+        let backend = status["backend"].clone();
+        report["daemon"] = json!({
+            "connected": true,
+            "backend": backend,
+            "device": status["device"],
+            "drivable": status["drivable"],
+        });
+        if backend == "accessibility" && !adb_serving(&status["device"]) {
+            report["adb_only_unavailable"] = json!(ADB_ONLY_FEATURES);
+            report["hint"] = json!("Driving through the on-phone accessibility daemon; ADB-only features (android-use adb ...) need USB debugging and are unavailable in this mode");
+            return report;
+        }
+    } else {
+        report["daemon"] = json!({"connected": false});
+    }
+    report["hint"] = json!(
+        if let Some(error) = adb_error.filter(|_| devices.is_empty()) {
+            if live.is_some() {
+                "Each device row says what to fix; act only on a device with state device and no problem".to_string()
+            } else {
+                error
+            }
+        } else if devices.is_empty() {
+            android_use::device::hint_for("missing").to_string()
+        } else {
+            "Each device row says what to fix; act only on a device with state device and no problem".to_string()
+        }
+    );
+    report
+}
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -636,7 +691,10 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         Commands::Doctor => {
-            let mut devices = attached().await?;
+            let (mut devices, adb_error) = match attached().await {
+                Ok(devices) => (devices, None),
+                Err(error) => (Vec::new(), Some(error.to_string())),
+            };
             // Read-only: never wakes, taps or unlocks the phone.
             for row in devices.iter_mut().filter(|r| r["state"] == "device") {
                 let serial = row["serial"].as_str().unwrap_or_default().to_string();
@@ -645,12 +703,20 @@ async fn main() -> anyhow::Result<()> {
                     row[key] = health[key].clone();
                 }
             }
-            let hint = if devices.is_empty() {
-                android_use::device::hint_for("missing")
-            } else {
-                "Each device row says what to fix; act only on a device with state device and no problem"
+            // Same daemon status `status` reports; absent when no daemon answers.
+            let daemon = match connection(cli.url)
+                .ok()
+                .and_then(|saved| DaemonClient::new(saved.url, saved.token, cli.owner).ok())
+            {
+                Some(client) => tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    client.request("/agent/status", None),
+                )
+                .await
+                .ok(),
+                None => None,
             };
-            println!("{}", json!({"ok":true,"devices":devices,"hint":hint}));
+            println!("{}", doctor_report(devices, adb_error, daemon));
         }
         Commands::Connect {
             serial,
@@ -1134,5 +1200,43 @@ mod tests {
         );
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert!(device_token(directory.path(), "fixture-a").is_err());
+    }
+    #[test]
+    fn doctor_reports_accessibility_daemon_without_adb_hint() {
+        let status = json!({"ok":true,"backend":"accessibility","device":"5d00","drivable":true});
+        let report = doctor_report(Vec::new(), None, Some(status));
+        assert_eq!(report["daemon"]["connected"], true);
+        assert_eq!(report["daemon"]["backend"], "accessibility");
+        assert_eq!(report["daemon"]["device"], "5d00");
+        let unavailable = report["adb_only_unavailable"].as_array().unwrap();
+        for feature in ["logcat", "pull", "force-stop"] {
+            assert!(unavailable.contains(&json!(feature)));
+        }
+        assert!(!report["hint"]
+            .as_str()
+            .unwrap()
+            .contains("USB debugging and authorize"));
+        assert!(report["hint"].as_str().unwrap().contains("accessibility"));
+    }
+    #[test]
+    fn doctor_without_daemon_keeps_missing_device_hint() {
+        let report = doctor_report(Vec::new(), None, None);
+        assert_eq!(report["daemon"]["connected"], false);
+        assert!(report.get("adb_only_unavailable").is_none());
+        assert_eq!(report["hint"], android_use::device::hint_for("missing"));
+    }
+    #[test]
+    fn doctor_with_adb_attached_daemon_lists_no_unavailable_features() {
+        let devices = vec![json!({"serial":"5d00","state":"device"})];
+        let status = json!({"ok":true,"backend":"accessibility","device":"5d00","drivable":true});
+        let report = doctor_report(devices, None, Some(status));
+        assert_eq!(report["daemon"]["connected"], true);
+        assert!(report.get("adb_only_unavailable").is_none());
+    }
+    #[test]
+    fn doctor_treats_unreachable_daemon_as_disconnected() {
+        let status = json!({"ok":false,"error":"daemon_unreachable"});
+        let report = doctor_report(Vec::new(), None, Some(status));
+        assert_eq!(report["daemon"]["connected"], false);
     }
 }
