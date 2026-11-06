@@ -909,9 +909,26 @@ async fn main() -> anyhow::Result<()> {
             let serial = match serial {
                 Ok(serial) => serial,
                 Err(error) => {
+                    // Without ADB, recents still works through an accessibility daemon.
+                    if let (android_use::tools::AdbCommand::Recents, Some(client), true) =
+                        (&command, &client, status["backend"] == "accessibility")
+                    {
+                        return print_result(
+                            client
+                                .request("/agent/device", Some(json!({"command":"recents"})))
+                                .await,
+                        );
+                    }
+                    let message = match command {
+                        android_use::tools::AdbCommand::ForceStop { .. }
+                        | android_use::tools::AdbCommand::Restart { .. } => {
+                            format!("{} ({error})", android_use::tools::FORCE_STOP_NEEDS_ADB)
+                        }
+                        _ => format!("This command needs USB debugging, which the accessibility companion does not provide: {error}"),
+                    };
                     return print_result(
-                        json!({"ok":false,"error":"adb_required","message":format!("This command needs USB debugging, which the accessibility companion does not provide: {error}")}),
-                    )
+                        json!({"ok":false,"error":"adb_required","message":message}),
+                    );
                 }
             };
             if let (true, Some(client)) = (command.mutates(), &client) {

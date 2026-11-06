@@ -130,6 +130,7 @@ fn failure(error: Failure) -> axum::response::Response {
 pub fn capabilities() -> Value {
     json!({"ok":true,"platform":"android","version":env!("CARGO_PKG_VERSION"),
         "actions":["tap","longpress","swipe","scroll","type","back","home","launch_app","wait_for"],
+        "device_commands":{"recents":"adb or accessibility","force_stop":"adb only","restart_app":"adb only"},
         "action_schema":crate::tools::action_schema(),
         "adb_only_commands":["recents","force-stop","restart","logcat","pull","package","apps"],
         "elements":true,"non_bmp_tree_text":"preserved","screenshot":true,"batch":true,"delta":true,"snapshot_bound_tap":true,
@@ -146,6 +147,7 @@ pub fn router<B: DeviceBackend + 'static>(state: ApiState<B>) -> Router {
         .route("/agent/actions", post(actions::<B>))
         .route("/agent/input", post(input::<B>))
         .route("/agent/lease", post(lease::<B>))
+        .route("/agent/device", post(device::<B>))
         .route("/agent/release", post(release::<B>))
         .route("/agent/disconnect", post(disconnect::<B>))
         .route("/agent/flow/draft", get(flow_draft::<B>))
@@ -272,6 +274,68 @@ async fn input<B: DeviceBackend>(
     }
     let step: Action = serde_json::from_value(body).expect("checked by action_problem");
     actions(State(state), headers, Json(json!({"steps":[step]}))).await
+}
+/// App-level device commands outside the action batch: `recents`,
+/// `force_stop` and `restart_app`. They take the lease like any action.
+/// The accessibility companion can open recents; stopping another app needs
+/// ADB, so those return `adb_required` before anything is sent.
+async fn device<B: DeviceBackend>(
+    State(state): State<ApiState<B>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> axum::response::Response {
+    let owner = match state.caller(&headers) {
+        Ok(o) => o,
+        Err(e) => return failure(e),
+    };
+    let command = match crate::tools::device_command(&body) {
+        Ok(command) => command,
+        Err(message) => return failure(Failure::not_sent("invalid_command", &message)),
+    };
+    let mut session = state.session.lock().await;
+    if let Err(e) = session.acquire(&owner) {
+        return failure(e);
+    }
+    if let Some(bridge) = &state.bridge {
+        if !matches!(command, crate::tools::AdbCommand::Recents) {
+            return failure(Failure::not_sent(
+                "adb_required",
+                crate::tools::FORCE_STOP_NEEDS_ADB,
+            ));
+        }
+        return match bridge.call("recents", json!([]), true).await {
+            Ok(reply) if reply["result"] == json!(true) => {
+                Json(json!({"ok":true,"backend":"accessibility"})).into_response()
+            }
+            Ok(reply) if reply.pointer("/error/message") == Some(&json!("unsupported_method")) => {
+                failure(Failure::not_sent(
+                    "companion_outdated",
+                    "The phone app does not support recents yet; update the android-use phone app",
+                ))
+            }
+            Ok(_) => failure(Failure::unknown(
+                "action_not_acknowledged",
+                "Recents was sent but not confirmed; read the screen before continuing",
+            )),
+            Err(e) => failure(e),
+        };
+    }
+    let status = session.control.status().await;
+    let Some(serial) = status["device"].as_str().map(str::to_string) else {
+        return failure(Failure::not_sent(
+            "device_unavailable",
+            "The daemon has no device serial",
+        ));
+    };
+    let foreground = status["app"].as_str().map(str::to_string);
+    let value = crate::tools::run_adb(&serial, command, foreground).await;
+    session.control.clear_history();
+    let status = if value["ok"] == true {
+        StatusCode::OK
+    } else {
+        StatusCode::BAD_REQUEST
+    };
+    (status, Json(value)).into_response()
 }
 /// Hold the device for host-side ADB changes, which bypass the action path.
 async fn lease<B: DeviceBackend>(

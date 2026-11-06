@@ -29,6 +29,8 @@ Type only after confirming the foreground app and focused editable field. `phone
 
 `outcome:unknown` or `retry_safe:false` forbids automatic replay. Read the screen and check the requested postcondition. An acknowledged gesture does not prove navigation or a business operation succeeded. Do not repeat a partially completed batch. If a person changes the screen, re-read before continuing.
 
+To kill and reopen an app (e.g. a recovery test), use `phone_restart_app` / `android-use adb restart PKG`; `phone_force_stop` only stops it. Both need ADB and return `adb_required` on the accessibility backend. `phone_recents` / `android-use adb recents` opens the app switcher on either backend.
+
 Use `phone_screenshot` only when the tree does not answer the question. Protected surfaces may be blank. Release the caller's lease with `phone_release` / `android-use release` when done; the connection stays ready for the next task.
 
 ## Flows
