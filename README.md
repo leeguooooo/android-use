@@ -82,7 +82,7 @@ android-use adb package com.example.app   # omit the name for the foreground app
 android-use adb apps --all
 ```
 
-`recents`, `force-stop` and `restart` first take the daemon lease, so they refuse while another caller owns the phone. `package` returns version, install times, APK paths and `running`; `label` stays null because ADB does not expose it.
+`recents`, `force-stop` and `restart` first take the daemon lease, so they refuse while another caller owns the phone. With only the accessibility companion, `adb recents` falls back to the companion's `GLOBAL_ACTION_RECENTS` (needs an updated phone app; older ones return `companion_outdated`). Android does not let an accessibility service stop another app, so `force-stop` and `restart` return `adb_required` there. MCP exposes the same three as `phone_recents`, `phone_force_stop` and `phone_restart_app`, served by the daemon at `POST /agent/device` with `{"command":"recents"|"force_stop"|"restart_app","package":...}`. `package` returns version, install times, APK paths and `running`; `label` stays null because ADB does not expose it.
 
 ## Flows
 

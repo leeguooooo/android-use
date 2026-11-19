@@ -40,7 +40,11 @@ public final class PocketService extends AccessibilityService {
                 case "typeText": value = typeText(p.getString(0),p.getBoolean(1)); break;
                 case "click": value = gesture(p.getInt(0),p.getInt(1),p.getInt(0),p.getInt(1),p.length()==3?p.getLong(2):50); break;
                 case "swipe": value = gesture(p.getInt(0),p.getInt(1),p.getInt(2),p.getInt(3),p.getLong(4)*5); break;
-                case "pressKey": value = instance.performGlobalAction("back".equals(p.getString(0))?GLOBAL_ACTION_BACK:GLOBAL_ACTION_HOME); break;
+                case "pressKey":
+                    String key = p.getString(0);
+                    if (!"back".equals(key) && !"home".equals(key)) throw new Refused("unsupported_key");
+                    value = instance.performGlobalAction("back".equals(key)?GLOBAL_ACTION_BACK:GLOBAL_ACTION_HOME); break;
+                case "recents": value = instance.performGlobalAction(GLOBAL_ACTION_RECENTS); break;
                 case "launchApp":
                     Intent intent = instance.getPackageManager().getLaunchIntentForPackage(p.getString(0));
                     if (intent == null) throw new Refused("app_not_found");

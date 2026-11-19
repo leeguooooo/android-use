@@ -50,7 +50,7 @@ fn response(text: String) -> String {
     let result = match request["method"].as_str().unwrap() {
         "screen" => json!({"device":"","app":"fixture.app","width":100,"height":200,"elements":[]}),
         "typeText" => json!({"applied":true,"verified":true,"redacted":false}),
-        "launchApp" | "click" => json!(true),
+        "launchApp" | "click" | "recents" => json!(true),
         _ => json!(false),
     };
     json!({"result":result}).to_string()
@@ -197,6 +197,75 @@ async fn a_different_tls_certificate_never_reaches_native_dispatch() {
         "phone_disconnected"
     );
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+    stop.store(true, Ordering::Release);
+    handle.shutdown();
+    client.await.unwrap().unwrap();
+    server.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn device_commands_open_recents_and_refuse_force_stop_without_adb() {
+    use android_use::http::{router, ApiState, Session};
+    let (pair, bridge, handle, server) = fixture().await;
+    let stop = Arc::new(AtomicBool::new(false));
+    let seen = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let s = seen.clone();
+    let client = tokio::spawn(android_use_phone::run(
+        pair.clone(),
+        stop.clone(),
+        Arc::new(move |text| {
+            let request: Value = serde_json::from_str(&text).unwrap();
+            s.lock()
+                .unwrap()
+                .push(request["method"].as_str().unwrap().into());
+            response(text)
+        }),
+    ));
+    let mut backend =
+        AndroidBackend::from_accessibility(pair.device_id.clone(), bridge.clone()).unwrap();
+    wait_ready(&mut backend).await;
+    let api = router(
+        ApiState::new(
+            Arc::new(tokio::sync::Mutex::new(Session::new(backend))),
+            "fixture-token".into(),
+        )
+        .with_phone_bridge(Some(bridge))
+        .with_backend("accessibility"),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/agent/device", listener.local_addr().unwrap());
+    let daemon = tokio::spawn(async move { axum::serve(listener, api).await.unwrap() });
+    let post = |body: Value| {
+        let url = url.clone();
+        async move {
+            reqwest::Client::new()
+                .post(url)
+                .bearer_auth("fixture-token")
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap()
+        }
+    };
+    let value = post(json!({"command":"recents"})).await;
+    assert_eq!(value["ok"], true, "{value}");
+    assert_eq!(seen.lock().unwrap().last().unwrap(), "recents");
+    let before = seen.lock().unwrap().len();
+    for command in ["force_stop", "restart_app"] {
+        let value = post(json!({"command":command,"package":"a.b"})).await;
+        assert_eq!(value["error"], "adb_required", "{value}");
+        assert_eq!(value["outcome"], "not_sent", "{value}");
+        assert!(value["message"].as_str().unwrap().contains("ADB"));
+    }
+    let value = post(json!({"command":"force_stop","package":"a.b;reboot"})).await;
+    assert_eq!(value["error"], "invalid_command");
+    let value = post(json!({"command":"reboot"})).await;
+    assert_eq!(value["error"], "invalid_command");
+    assert_eq!(seen.lock().unwrap().len(), before);
+    daemon.abort();
     stop.store(true, Ordering::Release);
     handle.shutdown();
     client.await.unwrap().unwrap();

@@ -215,6 +215,31 @@ impl AdbCommand {
     }
 }
 
+/// Why force_stop/restart_app refuse on the accessibility backend.
+pub const FORCE_STOP_NEEDS_ADB: &str = "force_stop and restart_app require ADB (USB debugging): Android does not let an accessibility service stop another app. Connect the phone over USB with debugging enabled, or stop it by hand in Settings > Apps";
+
+/// Parse a `/agent/device` body: {"command":"recents"} or
+/// {"command":"force_stop"|"restart_app","package":"com.example"}.
+pub fn device_command(body: &Value) -> Result<AdbCommand, String> {
+    let package = || match body["package"].as_str() {
+        Some(p) if valid_package(p) => Ok(p.to_string()),
+        Some(p) => Err(format!("Invalid package name: {p}")),
+        None => Err("\"package\" is required".to_string()),
+    };
+    match body["command"].as_str() {
+        Some("recents") => Ok(AdbCommand::Recents),
+        Some("force_stop") => Ok(AdbCommand::ForceStop {
+            package: package()?,
+        }),
+        Some("restart_app") => Ok(AdbCommand::Restart {
+            package: package()?,
+        }),
+        other => Err(format!(
+            "Unknown device command {other:?}; use recents, force_stop or restart_app"
+        )),
+    }
+}
+
 pub fn valid_package(name: &str) -> bool {
     name.contains('.')
         && name.len() <= 255
