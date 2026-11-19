@@ -514,6 +514,16 @@ impl flow::FlowDevice for NoDevice {
         json!({"ok":false,"problem":"no_device"})
     }
 }
+/// Warn when a failed capture leaves an older file at the destination, so it
+/// is not mistaken for a fresh screenshot. The file is left untouched.
+fn stale_output_warning(output: &std::path::Path) -> Option<String> {
+    output.exists().then(|| {
+        format!(
+            "warning: screenshot failed; {} was NOT updated and still holds an older capture",
+            output.display()
+        )
+    })
+}
 async fn plan(
     registry: &std::path::Path,
     target: &str,
@@ -1015,11 +1025,21 @@ async fn main() -> anyhow::Result<()> {
                     max_width,
                     crop,
                 } => {
-                    let mut bytes = client.screenshot().await.map_err(|e| anyhow::anyhow!(e))?;
-                    if max_width.is_some() || crop.is_some() {
-                        bytes = android_use::tools::resize_png(&bytes, max_width, crop.as_deref())
-                            .map_err(|e| anyhow::anyhow!(e))?;
-                    }
+                    let captured = match client.screenshot().await {
+                        Ok(bytes) if max_width.is_some() || crop.is_some() => {
+                            android_use::tools::resize_png(&bytes, max_width, crop.as_deref())
+                        }
+                        other => other,
+                    };
+                    let bytes = match captured {
+                        Ok(bytes) => bytes,
+                        Err(e) => {
+                            if let Some(w) = stale_output_warning(&output) {
+                                eprintln!("{w}");
+                            }
+                            return Err(anyhow::anyhow!(e));
+                        }
+                    };
                     tokio::fs::write(&output, bytes).await?;
                     println!("{}", json!({"ok":true,"path":output}));
                 }
@@ -1134,5 +1154,23 @@ mod tests {
         );
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert!(device_token(directory.path(), "fixture-a").is_err());
+    }
+}
+
+#[cfg(test)]
+mod stale_output_tests {
+    use super::stale_output_warning;
+    #[test]
+    fn warns_only_when_destination_exists() {
+        let dir = std::env::temp_dir().join(format!("au-stale-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("shot.png");
+        let _ = std::fs::remove_file(&path);
+        assert!(stale_output_warning(&path).is_none());
+        std::fs::write(&path, b"old").unwrap();
+        let w = stale_output_warning(&path).unwrap();
+        assert!(w.contains("NOT updated"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"old");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
