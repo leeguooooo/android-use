@@ -395,16 +395,10 @@ impl AndroidBackend {
                     body.pointer("/error/message")
                         .and_then(Value::as_str)
                         .unwrap_or("runner_refused"),
-                    if self.bridge.is_some() {
-                        match body.pointer("/error/message").and_then(Value::as_str) {
-                            Some("accessibility_unavailable") => "Enable android-use in Accessibility settings, or reopen the phone app after force-stop",
-                            Some("screen_unavailable") => "Unlock the phone and check the accessibility service",
-                            Some("screenshot_unavailable") => "Screenshots require Android 11/API 30 or newer and an unprotected screen",
-                            _ => "Phone refused before dispatch; inspect the focused field or device state",
-                        }
-                    } else {
-                        "Runner refused before dispatch; inspect the focused field or device state"
-                    },
+                    refusal_detail(
+                        body.pointer("/error/message").and_then(Value::as_str),
+                        self.bridge.is_some(),
+                    ),
                 ));
             }
             return Err(failure("rpc_error"));
@@ -789,4 +783,36 @@ fn focused_selector(element: &Element) -> Value {
         selector["mask"] = json!(0x020000 | 0x200000);
     }
     selector
+}
+
+fn refusal_detail(code: Option<&str>, phone_app: bool) -> &'static str {
+    match (code, phone_app) {
+        (Some("input_not_focused"), _) => "No visible editable field has input focus. If the keyboard is open for a field the accessibility tree reports as not visible (e.g. Unity/canvas inputs), type is refused to avoid entering text into the wrong place; tap the on-screen keyboard keys instead",
+        (Some("accessibility_unavailable"), true) => "Enable android-use in Accessibility settings, or reopen the phone app after force-stop",
+        (Some("screen_unavailable"), true) => "Unlock the phone and check the accessibility service",
+        (Some("screenshot_unavailable"), true) => "Screenshots require Android 11/API 30 or newer and an unprotected screen",
+        (_, true) => "Phone refused before dispatch; inspect the focused field or device state",
+        (_, false) => "Runner refused before dispatch; inspect the focused field or device state",
+    }
+}
+
+#[cfg(test)]
+mod refusal_tests {
+    use super::refusal_detail;
+
+    #[test]
+    fn input_not_focused_explains_invisible_focus_fallback() {
+        for phone_app in [true, false] {
+            let detail = refusal_detail(Some("input_not_focused"), phone_app);
+            assert!(detail.contains("not visible"));
+            assert!(detail.contains("keyboard keys"));
+        }
+    }
+
+    #[test]
+    fn other_refusals_keep_existing_details() {
+        assert!(refusal_detail(Some("screen_unavailable"), true).starts_with("Unlock"));
+        assert!(refusal_detail(Some("other"), false).starts_with("Runner refused"));
+        assert!(refusal_detail(None, true).starts_with("Phone refused"));
+    }
 }
